@@ -4,16 +4,7 @@ language: generic
 addons:
   apt:
     packages:
-      - build-essential
-      - cmake
-      - python2.7
-      - nodejs
-      - default-jre
-compiler:
-  - clang
-install:
-  - make emscripten
-  - source emsdk_portable/emsdk_env.sh
+      - emscripten
 script:
   - make
   - make test

@@ -14,8 +14,8 @@ is_debug: force
 
 deploy: gh-pages
 	cd gh-pages && rm -rf .git && git init && git config user.name 'Travis CI' && git config user.email 'travis-ci@travis-ci.org' && git add . && git commit -m 'Deploy to GitHub Pages'
-ifdef GH_REMOTE
-	@cd gh-pages && echo '$(GH_REMOTE)' && git push --force --quiet '$(GH_REMOTE)' master:gh-pages > /dev/null 2>&1
+ifdef GIT_REMOTE
+	@cd gh-pages && git push --force --quiet '$(GIT_REMOTE)' master:gh-pages > /dev/null 2>&1
 endif
 
 gh-pages: test.html vtable.js
