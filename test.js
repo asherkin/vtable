@@ -16,19 +16,19 @@ function hex(n) {
   return ('0000000' + ((n|0)+4294967296).toString(16)).substr(-8);
 }
 
-fs.readFile('./server_srv.so', function(err, data) {
+fs.readFile('./engine_srv.so', function(err, data) {
   if (err) {
     throw err;
   }
 
   var programInfo = elf.process(BufferToUint8Array(data));
 
-  console.log("rodata offset: " + hex(programInfo.rodataOffset));
+  console.log("rodata start: " + hex(programInfo.rodataStart));
   console.log("rodata chunks: " + programInfo.rodataChunks.size());
   for (var i = 0; i < programInfo.rodataChunks.size(); ++i) {
     var chunk = programInfo.rodataChunks.get(i);
     console.log("  offset: " + hex(chunk.offset));
-    console.log("    size: " + hex(chunk.data.size()));
+    console.log("    size: " + hex(chunk.data.length));
   }
 
   console.log("symbols: " + programInfo.symbols.size());

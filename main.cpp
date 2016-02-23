@@ -2,17 +2,31 @@
 #include "libelf.h"
 #include "gelf.h"
 
+#ifdef EMSCRIPTEN
+#include <emscripten/val.h>
+#include <emscripten/bind.h>
+#endif
+
 #include <vector>
 #include <string>
 #include <memory>
 #include <fstream>
+#include <iostream>
 
 #include <cstdio>
 #include <cstring>
 
 struct RodataChunk {
+#ifdef EMSCRIPTEN
+  RodataChunk(): data(emscripten::val::null()) {}
+#endif
+
   size_t offset;
+#ifdef EMSCRIPTEN
+  emscripten::val data;
+#else
   std::vector<unsigned char> data;
+#endif
 };
 
 struct SymbolInfo {
@@ -22,39 +36,42 @@ struct SymbolInfo {
 };
 
 struct ProgramInfo {
-  size_t rodataOffset;
+  std::string error;
+  size_t rodataStart;
   std::vector<RodataChunk> rodataChunks;
   std::vector<SymbolInfo> symbols;
 };
 
-std::unique_ptr<ProgramInfo> process(std::string image) {
+ProgramInfo process(std::string image) {
+  ProgramInfo programInfo = {};
+
   if (elf_version(EV_CURRENT) == EV_NONE) {
-    fprintf(stderr, "Failed to init libelf.\n");
-    return std::unique_ptr<ProgramInfo>(nullptr);
+    programInfo.error = "Failed to init libelf.";
+    return programInfo;
   }
 
   Elf *elf = elf_memory(&image[0], image.size());
   if (!elf) {
-    fprintf(stderr, "elf_begin failed. (%s)\n", elf_errmsg(-1));
-    return std::unique_ptr<ProgramInfo>(nullptr);
+    programInfo.error = "elf_begin failed. (" + std::string(elf_errmsg(-1)) + ")";
+    return programInfo;
   }
 
   Elf_Kind elfKind = elf_kind(elf);
   if (elfKind != ELF_K_ELF) {
-    fprintf(stderr, "Input is not an ELF object. (%d)\n", elfKind);
-    return std::unique_ptr<ProgramInfo>(nullptr);
+    programInfo.error = "Input is not an ELF object. (" + std::to_string(elfKind) + ")";
+    return programInfo;
   }
 
   size_t numberOfSections;
   if (elf_getshdrnum(elf, &numberOfSections) != 0) {
-    fprintf(stderr, "Failed to get number of ELF sections. (%s)\n", elf_errmsg(-1));
-    return std::unique_ptr<ProgramInfo>(nullptr);
+    programInfo.error = "Failed to get number of ELF sections. (" + std::string(elf_errmsg(-1)) + ")";
+    return programInfo;
   }
 
   size_t sectionNameStringTableIndex;
   if (elf_getshdrstrndx(elf, &sectionNameStringTableIndex) != 0) {
-    fprintf(stderr, "Failed to get ELF section names. (%s)\n", elf_errmsg(-1));
-    return std::unique_ptr<ProgramInfo>(nullptr);
+    programInfo.error = "Failed to get ELF section names. (" + std::string(elf_errmsg(-1)) + ")";
+    return programInfo;
   }
 
   GElf_Off dataOffset;
@@ -65,19 +82,19 @@ std::unique_ptr<ProgramInfo> process(std::string image) {
   for (size_t elfSectionIndex = 0; elfSectionIndex < numberOfSections; ++elfSectionIndex) {
     Elf_Scn *elfScn = elf_getscn(elf, elfSectionIndex);
     if (!elfScn) {
-      fprintf(stderr, "Failed to get section %zu. (%s)\n", elfSectionIndex, elf_errmsg(-1));
+      programInfo.error = "Failed to get section " + std::to_string(elfSectionIndex) + ". (" + std::string(elf_errmsg(-1)) + ")";
       continue;
     }
 
     GElf_Shdr elfSectionHeader;
     if (gelf_getshdr(elfScn, &elfSectionHeader) != &elfSectionHeader) {
-      fprintf(stderr, "Failed to get header for section %zu. (%s)\n", elfSectionIndex, elf_errmsg(-1));
+      programInfo.error = "Failed to get header for section " + std::to_string(elfSectionIndex) + ". (" + std::string(elf_errmsg(-1)) + ")";
       continue;
     }
 
     const char *name = elf_strptr(elf, sectionNameStringTableIndex, elfSectionHeader.sh_name);
     if (!name) {
-      fprintf(stderr, "Failed to get name of section %zu. (%s)\n", elfSectionIndex, elf_errmsg(-1));
+      programInfo.error = "Failed to get name of section " + std::to_string(elfSectionIndex) + ". (" + std::string(elf_errmsg(-1)) + ")";
       continue;
     }
 
@@ -96,30 +113,29 @@ std::unique_ptr<ProgramInfo> process(std::string image) {
   }
 
   if (!dataScn || !symbolTableScn || !stringTableScn) {
-    fprintf(stderr, "Failed to find all required ELF sections.\n");
-    return std::unique_ptr<ProgramInfo>(nullptr);
+    programInfo.error = "Failed to find all required ELF sections.";
+    return programInfo;
   }
 
   size_t symbolNameStringTableIndex = elf_ndxscn(stringTableScn);
   if (symbolNameStringTableIndex == SHN_UNDEF) {
-    fprintf(stderr, "elf_ndxscn failed. (%s)\n", elf_errmsg(-1));
-    return std::unique_ptr<ProgramInfo>(nullptr);
+    programInfo.error = "elf_ndxscn failed. (" + std::string(elf_errmsg(-1)) + ")";
+    return programInfo;
   }
 
-  std::unique_ptr<ProgramInfo> programInfo(new ProgramInfo());
-  programInfo->rodataOffset = dataOffset;
+  programInfo.rodataStart = dataOffset;
 
   Elf_Data *data = nullptr;
   while ((data = elf_getdata(dataScn, data)) != nullptr) {
-    //fprintf(stderr, "Got a matching rodata segment: %08lx %08lx\n", dataOffset + data->d_off, data->d_size);
     RodataChunk rodataChunk;
     rodataChunk.offset = data->d_off;
+#ifdef EMSCRIPTEN
+    // memory_view doesn't do a copy, but we want JS to manage this once embind is done.
+    rodataChunk.data = emscripten::val(emscripten::memory_view<unsigned char>(data->d_size, (unsigned char *)data->d_buf)).call<emscripten::val>("slice");
+#else
     rodataChunk.data = std::move(std::vector<unsigned char>((char *)data->d_buf, (char *)data->d_buf + data->d_size));
-    programInfo->rodataChunks.push_back(std::move(rodataChunk));
-
-    //FILE *file = fopen("rodata.bin", "wb");
-    //fwrite((char *)data->d_buf, 1, data->d_size, file);
-    //fclose(file);
+#endif
+    programInfo.rodataChunks.push_back(std::move(rodataChunk));
   }
 
   Elf_Data *symbolData = nullptr;
@@ -129,29 +145,27 @@ std::unique_ptr<ProgramInfo> process(std::string image) {
     while (gelf_getsym(symbolData, symbolIndex++, &symbol) != nullptr) {
       const char *name = elf_strptr(elf, symbolNameStringTableIndex, symbol.st_name);
       if (!name) {
-        fprintf(stderr, "Failed to symbol name for %zu. (%s)\n", symbolIndex, elf_errmsg(-1));
+        std::cerr << "Failed to symbol name for " + std::to_string(symbolIndex) + ". (" + std::string(elf_errmsg(-1)) + ")" << std::endl;
         continue;
       }
 
-      //fprintf(stdout, "%08lx %08lx %s\n", symbol.st_value, symbol.st_size, name);
       SymbolInfo symbolInfo;
       symbolInfo.address = symbol.st_value;
       symbolInfo.size = symbol.st_size;
       symbolInfo.name = name;
-      programInfo->symbols.push_back(std::move(symbolInfo));
+      programInfo.symbols.push_back(std::move(symbolInfo));
     }
   }
 
   elf_end(elf);
-  return std::move(programInfo);
+  return programInfo;
 }
 
 #ifdef EMSCRIPTEN
-#include <emscripten/bind.h>
-
 EMSCRIPTEN_BINDINGS(vtable) {
   emscripten::value_object<ProgramInfo>("ProgramInfo")
-    .field("rodataOffset", &ProgramInfo::rodataOffset)
+    .field("error", &ProgramInfo::error)
+    .field("rodataStart", &ProgramInfo::rodataStart)
     .field("rodataChunks", &ProgramInfo::rodataChunks)
     .field("symbols", &ProgramInfo::symbols);
 
@@ -164,7 +178,6 @@ EMSCRIPTEN_BINDINGS(vtable) {
     .field("size", &SymbolInfo::size)
     .field("name", &SymbolInfo::name);
 
-  emscripten::register_vector<unsigned char>("VectorUnsignedChar");
   emscripten::register_vector<RodataChunk>("VectorRodataChunk");
   emscripten::register_vector<SymbolInfo>("VectorSymbolInfo");
 
@@ -179,22 +192,23 @@ int main(int argc, char *argv[]) {
 
   std::ifstream file(argv[1], std::ios::binary);
   std::string image((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-  std::unique_ptr<ProgramInfo> programInfo = process(image);
 
-  if (!programInfo) {
-    fprintf(stderr, "Failed to process input file '%s'.\n", argv[1]);
+  ProgramInfo programInfo = process(image);
+
+  if (!programInfo.error.empty()) {
+    fprintf(stderr, "Failed to process input file '%s': %s.\n", argv[1], programInfo.error.c_str());
     return 1;
   }
 
-  fprintf(stdout, "rodata offset: %08lx\n", programInfo->rodataOffset);
-  fprintf(stdout, "rodata chunks: %lu\n", programInfo->rodataChunks.size());
-  for (const auto &chunk : programInfo->rodataChunks) {
+  fprintf(stdout, "rodata start: %08lx\n", programInfo.rodataStart);
+  fprintf(stdout, "rodata chunks: %lu\n", programInfo.rodataChunks.size());
+  for (const auto &chunk : programInfo.rodataChunks) {
     fprintf(stdout, "  offset: %08lx\n", chunk.offset);
     fprintf(stdout, "    size: %lu\n", chunk.data.size());
   }
 
-  fprintf(stdout, "symbols: %lu\n", programInfo->symbols.size());
-  for (const auto &symbol : programInfo->symbols) {
+  fprintf(stdout, "symbols: %lu\n", programInfo.symbols.size());
+  for (const auto &symbol : programInfo.symbols) {
     fprintf(stdout, "  offset: %08lx\n", symbol.address);
     fprintf(stdout, "    size: %lu\n", symbol.size);
     fprintf(stdout, "    name: %s\n", symbol.name.c_str());
