@@ -1,15 +1,24 @@
 sudo: false
 language: cpp
+addons:
+  apt:
+    packages:
+      - build-essential
+      - cmake
+      - python2.7
+      - nodejs
+      - default-jre
 compiler:
   - clang
+install:
+  - make emscripten
+  - source emsdk_portable/emsdk_env.sh
 script:
   - make
   - make test
-after_success:
-  - make gh-pages
-  - cd gh-pages
-  - git init
-  - git config user.name "Travis CI"
-  - git config user.email "travis-ci@travis-ci.org"
-  - git add .
-  - git commit -m "Deploy to GitHub Pages"
+deploy:
+  skip_cleanup: true
+  provider: script
+  script: make deploy
+  on:
+    branch: master

@@ -3,6 +3,7 @@ is_debug
 build-libelf/
 libelf-0.8.13.tar.gz
 libelf-0.8.13/
-server_srv.so
+emsdk-portable.tar.gz
+emsdk_portable/
 engine_srv.so
 vtable.js

@@ -3,25 +3,25 @@ var elf = require('./vtable.js');
 
 //console.log(elf, elf.process);
 
-function BufferToUint8Array(buffer) {
+function toArrayBuffer(buffer) {
   var ab = new ArrayBuffer(buffer.length);
   var view = new Uint8Array(ab);
   for (var i = 0; i < buffer.length; ++i) {
     view[i] = buffer[i];
   }
-  return view;
+  return ab;
 }
 
 function hex(n) {
   return ('0000000' + ((n|0)+4294967296).toString(16)).substr(-8);
 }
 
-fs.readFile('./engine_srv.so', function(err, data) {
+fs.readFile('engine_srv.so', function(err, data) {
   if (err) {
     throw err;
   }
 
-  var programInfo = elf.process(BufferToUint8Array(data));
+  var programInfo = elf.process(toArrayBuffer(data));
   if (programInfo.error.length > 0) {
     throw programInfo.error;
   }
