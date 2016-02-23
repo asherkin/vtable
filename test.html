@@ -67,11 +67,11 @@
       xhr.open('GET', 'https://users.alliedmods.net/~asherkin/public/bins/source/tf2/bin/engine_srv.so', true);
       xhr.responseType = 'arraybuffer';
       xhr.onload = function() {
-        document.write(' done<br>Processing...');
+        document.body.textContent = 'Processing...';
         programInfo = Module['process'](this.response);
-        document.write(' done');
 
         if (programInfo.error.length > 0) {
+          document.body.textContent = 'Error: ' + programInfo.error;
           console.error(programInfo.error);
           return;
         }
@@ -95,18 +95,19 @@
           }
         }
 
-        document.write('<pre>' + demangle("_ZTV17CHLTVDemoRecorder") + '\n');
+        var output = '<pre>' + demangle("_ZTV17CHLTVDemoRecorder") + '\n';
         var vtable = vtables["_ZTV17CHLTVDemoRecorder"]
         var vtableView = new Uint32Array(vtable.buffer, vtable.byteOffset, vtable.byteLength / 4);
         for (var i = 2; i < vtableView.length; ++i) {
           var func = vtableView[i];
           var name = symbols[func];
-          document.write(('   ' + (i - 2)).substr(-4) + ' ' + hex(func) + ' ' + demangle(name) + '\n');
+          output += (('   ' + (i - 2)).substr(-4) + ' ' + hex(func) + ' ' + demangle(name) + '\n');
         }
-        document.write('</pre>');
+        output += '</pre>';
+        document.body.innerHTML = output;
       };
       window.onload = function() {
-        document.write('Downloading...');
+        document.body.textContent = 'Downloading...';
         xhr.send();
       };
     </script>
