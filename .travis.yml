@@ -1,10 +1,9 @@
 sudo: required
 dist: trusty
 language: generic
-addons:
-  apt:
-    packages:
-      - emscripten
+install:
+  - sudo apt-get -qq update
+  - sudo apt-get install -y emscripten
 script:
   - make
   - make test
