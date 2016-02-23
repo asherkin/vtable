@@ -22,6 +22,9 @@ fs.readFile('./engine_srv.so', function(err, data) {
   }
 
   var programInfo = elf.process(BufferToUint8Array(data));
+  if (programInfo.error.length > 0) {
+    throw programInfo.error;
+  }
 
   console.log("rodata start: " + hex(programInfo.rodataStart));
   console.log("rodata chunks: " + programInfo.rodataChunks.size());

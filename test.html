@@ -67,7 +67,9 @@
       xhr.open('GET', 'https://users.alliedmods.net/~asherkin/public/bins/source/tf2/bin/engine_srv.so', true);
       xhr.responseType = 'arraybuffer';
       xhr.onload = function() {
+        document.write(' done<br>Processing...');
         programInfo = Module['process'](this.response);
+        document.write(' done');
 
         if (programInfo.error.length > 0) {
           console.error(programInfo.error);
@@ -103,7 +105,10 @@
         }
         document.write('</pre>');
       }
-      xhr.send();
+      window.onload = function() {
+        document.write('Downloading...');
+        xhr.send();
+      };
     </script>
     <script src="vtable.js"></script>
   </body>

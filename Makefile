@@ -12,6 +12,12 @@ endif
 is_debug: force
 	@echo '$(DEBUG)' | cmp -s - $@ || echo '$(DEBUG)' > $@
 
+gh-pages: test.html vtable.js
+	rm -rf gh-pages
+	mkdir gh-pages
+	cp test.html gh-pages/index.html
+	cp vtable.js gh-pages/
+
 clean:
 	rm -rf vtable.js build-libelf libelf-0.8.13
 
@@ -22,7 +28,7 @@ test: test.js vtable.js engine_srv.so
 	node test.js
 
 engine_srv.so:
-	curl -o engine_srv.so 'http://users.alliedmods.net/~asherkin/public/bins/source/tf2/tf/bin/engine_srv.so'
+	curl -o engine_srv.so 'http://users.alliedmods.net/~asherkin/public/bins/source/tf2/bin/engine_srv.so'
 
 build-libelf/lib/libelf.a: build-libelf libelf-0.8.13
 	cd build-libelf && emconfigure ../libelf-0.8.13/configure --enable-shared=no && emmake make
