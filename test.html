@@ -11,6 +11,25 @@
       var symbols = {};
       var vtables = {};
 
+      function demangle(func) {
+        try {
+          var buf = Module['_malloc'](func.length);
+          Module['writeStringToMemory'](func, buf);
+          var status = Module['_malloc'](4);
+          var ret = Module['___cxa_demangle'](buf, 0, 0, status);
+          if (Module['getValue'](status, 'i32') === 0 && ret) {
+            return Module['Pointer_stringify'](ret);
+          }
+        } catch(e) {
+          throw new Error('Failed to demangle ' + func + ' (' + e.message + ')');
+        } finally {
+          if (buf) Module['_free'](buf);
+          if (status) Module['_free'](status);
+          if (ret) Module['_free'](ret);
+        }
+        throw new Error('Failed to demangle ' + func);
+      }
+
       function hex(n) {
          return ('0000000' + ((n|0)+4294967296).toString(16)).substr(-8);
       }
@@ -36,7 +55,7 @@
       xhr.open('GET', 'https://users.alliedmods.net/~asherkin/public/bins/source/tf2/bin/engine_srv.so', true);
       xhr.responseType = 'arraybuffer';
       xhr.onload = function() {
-        programInfo = Module.process(this.response);
+        programInfo = Module['process'](this.response);
 
         if (programInfo.error.length > 0) {
           console.error(programInfo.error);
@@ -61,6 +80,16 @@
             vtables[symbol.name] = getRodata(programInfo, symbol.address, symbol.size);
           }
         }
+
+        document.write('<pre>' + demangle("_ZTV17CHLTVDemoRecorder") + '\n');
+        var vtable = vtables["_ZTV17CHLTVDemoRecorder"]
+        var vtableView = new Uint32Array(vtable.buffer, vtable.byteOffset, vtable.byteLength / 4);
+        for (var i = 2; i < vtableView.length; ++i) {
+          var func = vtableView[i];
+          var name = symbols[func];
+          document.write(('   ' + (i - 2)).substr(-4) + ' ' + hex(func) + ' ' + demangle(name) + '\n');
+        }
+        document.write('</pre>');
       }
       xhr.send();
     </script>
