@@ -17,8 +17,21 @@
           Module['writeStringToMemory'](func, buf);
           var status = Module['_malloc'](4);
           var ret = Module['___cxa_demangle'](buf, 0, 0, status);
-          if (Module['getValue'](status, 'i32') === 0 && ret) {
-            return Module['Pointer_stringify'](ret);
+          var intStatus = Module['getValue'](status, 'i32');
+          switch (intStatus) {
+            case 0:
+              if (!ret) {
+                throw '___cxa_demangle returned NULL';
+              }
+              return Module['Pointer_stringify'](ret);
+            case -1:
+              throw 'a memory allocation failiure occurred';
+            case -2:
+              throw 'input is not a valid name under the C++ ABI mangling rules';
+            case -3:
+              throw 'one of the arguments is invalid';
+            default:
+              throw 'encountered an unknown error';
           }
         } catch(e) {
           throw new Error('Failed to demangle ' + func + ' (' + e.message + ')');
@@ -27,7 +40,6 @@
           if (status) Module['_free'](status);
           if (ret) Module['_free'](ret);
         }
-        throw new Error('Failed to demangle ' + func);
       }
 
       function hex(n) {
