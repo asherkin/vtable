@@ -6,9 +6,9 @@ MAKEFLAGS += --no-builtin-rules
 
 vtable.js: main.cpp build-libelf/lib/libelf.a is_debug
 ifeq ($(DEBUG), 1)
-	em++ --bind --std=c++14 --memory-init-file 0 -s ASSERTIONS=1 -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1 -s AGGRESSIVE_VARIABLE_ELIMINATION=1 -s WARN_UNALIGNED=1 -s NO_FILESYSTEM=1 -s NO_BROWSER=1 -Ibuild-libelf/lib -Ilibelf-0.8.13/lib -o vtable.js main.cpp build-libelf/lib/libelf.a
+	em++ --bind --std=c++14 --memory-init-file 0 -s ASSERTIONS=2 -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1 -s SAFE_HEAP=1 -s WARN_UNALIGNED=1 -s NO_FILESYSTEM=1 -s NO_BROWSER=1 -Ibuild-libelf/lib -Ilibelf-0.8.13/lib -o vtable.js main.cpp build-libelf/lib/libelf.a
 else
-	em++ --bind --std=c++14 -O3 --llvm-lto 1 --closure 1 --memory-init-file 0 -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1 -s AGGRESSIVE_VARIABLE_ELIMINATION=1 -s WARN_UNALIGNED=1 -s NO_FILESYSTEM=1 -s NO_BROWSER=1 -Ibuild-libelf/lib -Ilibelf-0.8.13/lib -o vtable.js main.cpp build-libelf/lib/libelf.a
+	em++ --bind --std=c++14 -O3 --llvm-lto 1 --closure 1 --memory-init-file 0 -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1 -s AGGRESSIVE_VARIABLE_ELIMINATION=1 -s NO_FILESYSTEM=1 -s NO_BROWSER=1 -Ibuild-libelf/lib -Ilibelf-0.8.13/lib -o vtable.js main.cpp build-libelf/lib/libelf.a
 endif
 
 .PHONY: force clean distclean test deploy
@@ -36,7 +36,7 @@ test: test.js vtable.js engine_srv.so
 	node test.js
 
 engine_srv.so:
-	curl -o engine_srv.so 'https://users.alliedmods.net/~asherkin/public/bins/source/tf2/bin/engine_srv.so'
+	curl -o engine_srv.so 'https://fennec.limetech.org/vtable-test/engine_srv.so'
 
 build-libelf/lib/libelf.a: export CFLAGS = -m32
 build-libelf/lib/libelf.a: export CXXFLAGS = -m32

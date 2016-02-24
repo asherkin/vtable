@@ -37,6 +37,7 @@ struct SymbolInfo {
 
 struct ProgramInfo {
   std::string error;
+  int addressSize;
   size_t rodataStart;
   std::vector<RodataChunk> rodataChunks;
   std::vector<SymbolInfo> symbols;
@@ -62,6 +63,24 @@ ProgramInfo process(std::string image) {
     return programInfo;
   }
 
+  GElf_Ehdr elfHeader;
+  if (gelf_getehdr(elf, &elfHeader) != &elfHeader) {
+    programInfo.error = "Failed to get ELF header. (" + std::string(elf_errmsg(-1)) + ")";
+    return programInfo;
+  }
+
+  switch (elfHeader.e_machine) {
+    case EM_386:
+      programInfo.addressSize = 4;
+      break;
+    case EM_X86_64:
+      programInfo.addressSize = 8;
+      break;
+    default:
+    programInfo.error = "Unsupported architecture. (" + std::to_string(elfHeader.e_machine) + ")";
+    return programInfo;
+  }
+
   size_t numberOfSections;
   if (elf_getshdrnum(elf, &numberOfSections) != 0) {
     programInfo.error = "Failed to get number of ELF sections. (" + std::string(elf_errmsg(-1)) + ")";
@@ -74,7 +93,7 @@ ProgramInfo process(std::string image) {
     return programInfo;
   }
 
-  GElf_Off dataOffset;
+  Elf64_Addr dataOffset;
   Elf_Scn *dataScn = nullptr;
   Elf_Scn *symbolTableScn = nullptr;
   Elf_Scn *stringTableScn = nullptr;
@@ -103,7 +122,7 @@ ProgramInfo process(std::string image) {
     } else if (elfSectionHeader.sh_type == SHT_STRTAB && strcmp(name, ".strtab") == 0) {
       stringTableScn = elfScn;
     } else if (elfSectionHeader.sh_type == SHT_PROGBITS && strcmp(name, ".rodata") == 0) {
-      dataOffset = elfSectionHeader.sh_offset;
+      dataOffset = elfSectionHeader.sh_addr;
       dataScn = elfScn;
     }
 
@@ -140,9 +159,9 @@ ProgramInfo process(std::string image) {
 
   Elf_Data *symbolData = nullptr;
   while ((symbolData = elf_getdata(symbolTableScn, symbolData)) != nullptr) {
-    size_t symbolIndex = 1;
+    size_t symbolIndex = 0;
     GElf_Sym symbol;
-    while (gelf_getsym(symbolData, symbolIndex++, &symbol) != nullptr) {
+    while (gelf_getsym(symbolData, symbolIndex++, &symbol) == &symbol) {
       const char *name = elf_strptr(elf, symbolNameStringTableIndex, symbol.st_name);
       if (!name) {
         std::cerr << "Failed to symbol name for " + std::to_string(symbolIndex) + ". (" + std::string(elf_errmsg(-1)) + ")" << std::endl;
@@ -165,6 +184,7 @@ ProgramInfo process(std::string image) {
 EMSCRIPTEN_BINDINGS(vtable) {
   emscripten::value_object<ProgramInfo>("ProgramInfo")
     .field("error", &ProgramInfo::error)
+    .field("addressSize", &ProgramInfo::addressSize)
     .field("rodataStart", &ProgramInfo::rodataStart)
     .field("rodataChunks", &ProgramInfo::rodataChunks)
     .field("symbols", &ProgramInfo::symbols);
@@ -200,6 +220,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  fprintf(stdout, "address size: %d\n", programInfo.addressSize);
   fprintf(stdout, "rodata start: %08lx\n", programInfo.rodataStart);
   fprintf(stdout, "rodata chunks: %lu\n", programInfo.rodataChunks.size());
   for (const auto &chunk : programInfo.rodataChunks) {
@@ -209,6 +230,9 @@ int main(int argc, char *argv[]) {
 
   fprintf(stdout, "symbols: %lu\n", programInfo.symbols.size());
   for (const auto &symbol : programInfo.symbols) {
+    if (symbol.address == 0 || symbol.size == 0 || symbol.name.empty()) {
+      continue;
+    }
     fprintf(stdout, "  offset: %08lx\n", symbol.address);
     fprintf(stdout, "    size: %lu\n", symbol.size);
     fprintf(stdout, "    name: %s\n", symbol.name.c_str());

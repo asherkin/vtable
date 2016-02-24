@@ -11,9 +11,12 @@
       var symbols = {};
       var vtables = {};
 
-      function demangle(func) {
+      function cxa_demangle(func) {
         try {
-          var buf = Module['_malloc'](func.length);
+          if (typeof func !== 'string') {
+            throw new Error('input not a string');
+          }
+          var buf = Module['_malloc'](func.length + 1);
           Module['writeStringToMemory'](func, buf);
           var status = Module['_malloc'](4);
           var ret = Module['___cxa_demangle'](buf, 0, 0, status);
@@ -21,20 +24,21 @@
           switch (intStatus) {
             case 0:
               if (!ret) {
-                throw '___cxa_demangle returned NULL';
+                throw new Error('___cxa_demangle returned NULL');
               }
               return Module['Pointer_stringify'](ret);
             case -1:
-              throw 'a memory allocation failiure occurred';
+              throw new Error('a memory allocation failiure occurred');
             case -2:
-              throw 'input is not a valid name under the C++ ABI mangling rules';
+              throw new Error('input is not a valid name under the C++ ABI mangling rules');
             case -3:
-              throw 'one of the arguments is invalid';
+              throw new Error('one of the arguments is invalid');
             default:
-              throw 'encountered an unknown error';
+              throw new Error('encountered an unknown error');
           }
         } catch(e) {
-          throw new Error('Failed to demangle ' + func + ' (' + e.message + ')');
+          console.log('Failed to demangle \'' + func + '\' (' + e.message + ')');
+          return func;
         } finally {
           if (buf) Module['_free'](buf);
           if (status) Module['_free'](status);
@@ -64,7 +68,7 @@
       }
 
       var xhr = new XMLHttpRequest();
-      xhr.open('GET', 'https://users.alliedmods.net/~asherkin/public/bins/source/tf2/bin/engine_srv.so', true);
+      xhr.open('GET', 'https://fennec.limetech.org/vtable-test/engine_srv.so', true);
       xhr.responseType = 'arraybuffer';
       xhr.onload = function() {
         document.body.textContent = 'Processing...';
@@ -80,31 +84,39 @@
         for (var i = 0; i < programInfo.symbols.size(); ++i) {
           var symbol = programInfo.symbols.get(i);
 
-          if (symbol.name === '_ZTV17CHLTVDemoRecorder') {
-            console.log(symbol);
-          }
-
-          if (symbol.address === 0) {
+          if (symbol.address === 0 || symbol.size === 0 || symbol.name.length === 0) {
             continue;
           }
 
           symbols[symbol.address] = symbol.name;
 
           if (symbol.name.match(/^_ZTV/)) {
-            vtables[symbol.name] = getRodata(programInfo, symbol.address, symbol.size);
+            try {
+              vtables[symbol.name] = getRodata(programInfo, symbol.address, symbol.size);
+            } catch(e) {
+              console.log('Got vtable symbol outside of .rodata: ' + symbol.name);
+            }
+
           }
         }
 
-        var output = '<pre>' + demangle("_ZTV17CHLTVDemoRecorder") + '\n';
-        var vtable = vtables["_ZTV17CHLTVDemoRecorder"]
-        var vtableView = new Uint32Array(vtable.buffer, vtable.byteOffset, vtable.byteLength / 4);
-        for (var i = 2; i < vtableView.length; ++i) {
-          var func = vtableView[i];
-          var name = symbols[func];
-          output += (('   ' + (i - 2)).substr(-4) + ' ' + hex(func) + ' ' + demangle(name) + '\n');
-        }
-        output += '</pre>';
-        document.body.innerHTML = output;
+        window.setTimeout(function() {
+          document.body.innerHTML = '';
+          for (var vtableSymbol in vtables) {
+            var output = '<pre>' + cxa_demangle(vtableSymbol) + '\n';
+            var vtable = vtables[vtableSymbol]
+            var vtableView = new Uint32Array(vtable.buffer, vtable.byteOffset, vtable.byteLength / 4);
+            for (var i = 0; i < vtableView.length; ++i) {
+              var func = vtableView[i];
+              var name = symbols[func] || '';
+              var index = i / (programInfo.addressSize / 4);
+              output += (('   ' + (index - 2)).substr(-4) + ' ' + hex(func) + ' ' + cxa_demangle(name) + '\n');
+              if (programInfo.addressSize === 8) ++i;
+            }
+            output += '</pre>';
+            document.body.innerHTML += output;
+          }
+        }, 100);
       };
       window.onload = function() {
         document.body.textContent = 'Downloading...';
