@@ -38,8 +38,11 @@ test: test.js vtable.js engine_srv.so
 engine_srv.so:
 	curl -o engine_srv.so 'https://users.alliedmods.net/~asherkin/public/bins/source/tf2/bin/engine_srv.so'
 
+build-libelf/lib/libelf.a: export CFLAGS = -m32
+build-libelf/lib/libelf.a: export CXXFLAGS = -m32
+build-libelf/lib/libelf.a: export LDFLAGS = -m32
 build-libelf/lib/libelf.a: build-libelf libelf-0.8.13
-	cd build-libelf && emconfigure ../libelf-0.8.13/configure --enable-shared=no && emmake make
+	cd build-libelf && emconfigure ../libelf-0.8.13/configure --build=i686-linux-gnu --enable-shared=no && emmake make
 
 build-libelf:
 	mkdir -p build-libelf
