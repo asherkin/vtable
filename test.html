@@ -108,6 +108,22 @@
 
         window.setTimeout(function() {
           document.body.innerHTML = '';
+
+          for (var typeSymbol in types) {
+            var output = document.createElement('pre');
+            output.textContent += cxa_demangle(typeSymbol) + '\n';
+            var type = types[typeSymbol]
+            var typeView = new Uint32Array(type.buffer, type.byteOffset, type.byteLength / 4);
+            for (var i = 0; i < typeView.length; ++i) {
+              var func = typeView[i];
+              var name = symbols[func] || '';
+              var index = i / (programInfo.addressSize / 4);
+              output.textContent += (('   ' + index).substr(-4) + ' ' + hex(func) + ' ' + cxa_demangle(name) + '\n');
+              if (programInfo.addressSize === 8) ++i;
+            }
+            document.body.appendChild(output);
+          }
+
           for (var vtableSymbol in vtables) {
             var output = document.createElement('pre');
             output.textContent += cxa_demangle(vtableSymbol) + '\n';
