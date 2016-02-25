@@ -7,6 +7,10 @@
     <title>VTable Dumper</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.6/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.5.0/css/font-awesome.min.css">
+    <style type="text/css">
+      .steam-game-button-controls { opacity: 0; transition: opacity 0.2s; }
+      .steam-game-button-controls:hover { opacity: 1; }
+    </style>
   </head>
   <body>
     <div id="content" class="container"></div>
@@ -15,47 +19,110 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-bootstrap/0.28.3/react-bootstrap.js"></script>
     <script type="text/babel">
-      const { Row, Col, Image, PageHeader } = ReactBootstrap;
+      const { Row, Col, Image, ButtonToolbar, Button, ProgressBar } = ReactBootstrap;
+
+      var state = null;
 
       const Icon = (props) =>
-        <i className={'fa fa-'+props.type} />;
+        <i className={'fa fa-'+props.type+(props.large ? ' fa-2x' : '')+(props.spin ? ' fa-spin' : '')} />;
 
-      const MutedLink = (props) =>
-        <a href={props.href} className="text-muted">{props.children}</a>
+      const FooterLink = (props) =>
+        <a href={props.href} target="_blank" className="text-muted">{props.children}</a>
 
-      const SteamGameImage = (props) =>
-        <Image
-          responsive
-          style={{ paddingBottom: 20, marginLeft: 'auto', marginRight: 'auto' }}
-          src={'http://cdn.akamai.steamstatic.com/steam/apps/'+props.appid+'/header.jpg'}
-          alt={'Steam App '+props.appid}
-        />
+      const handleSteamGameButtonClick = (appid, type, event) => {
+        state.setState({ selectedBinary: appid+'-'+type });
+      }
+
+      const SteamGameButton = (props) =>
+        <Col sm={4} className="text-center" style={{ position: 'relative' }}>
+          <Image
+            rounded responsive
+            style={{ marginTop: 0, marginLeft: 'auto', marginBottom: 30, marginRight: 'auto' }}
+            src={'http://cdn.akamai.steamstatic.com/steam/apps/'+props.appid+'/header.jpg'}
+            alt={'Steam App '+props.appid}
+          />
+          <div className="steam-game-button-controls" style={{
+            position: 'absolute', top: 0, left: 15, bottom: 30, right: 15,
+            backgroundColor: 'rgba(255, 255, 255, 0.85)',
+            border: '1px solid #ccc', borderRadius: 5,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <ButtonToolbar>
+              <Button bsSize="large" onClick={handleSteamGameButtonClick.bind(null, props.appid, 'engine')}><Icon type="cogs" large /><br/>Engine</Button>
+              <Button bsSize="large" onClick={handleSteamGameButtonClick.bind(null, props.appid, 'game')}><Icon type="server" large /><br/>Server</Button>
+            </ButtonToolbar>
+          </div>
+        </Col>
 
       const SteamGameList = (props) => <Row>
         {props.games.map((appid) =>
-          <Col key={appid} sm={4} className="text-center">
-            <SteamGameImage appid={appid} />
-          </Col>
+          <SteamGameButton key={appid} appid={appid} />
         )}
       </Row>;
 
-      ReactDOM.render(
-        <div className="text-center">
-          <PageHeader>
-            <h1>VTable Dumper</h1>
-            <p className="lead">
-              Pick a <Icon type="steam" /> game or drop a <code>.so</code> file to start.
-            </p>
-          </PageHeader>
-          <PageHeader>
-            <SteamGameList games={[240, 300, 320, 440, 550, 730]} />
-          </PageHeader>
-          <div className="text-muted" style={{ marginBottom: 20 }}>
-            made with &hearts; by <MutedLink href="https://limetech.io">asherkin</MutedLink> &bull; powered by <MutedLink href="http://emscripten.org">emscripten</MutedLink> & <MutedLink href="http://www.mr511.de/software/english.html">libelf</MutedLink>
+      const startHelpText =
+        <span>Pick a <Icon type="steam" /> game or drop a <code>.so</code> file to start.</span>;
+
+      const Layout = (props) => <div className="text-center">
+        <div className="page-header">
+          <h1>VTable Dumper</h1>
+          <p className="lead">{props.title}</p>
+        </div>
+        <div className="page-header">
+          {props.children}
+        </div>
+        <div className="text-muted text-lowercase" style={{ marginBottom: 20 }}>
+          Made with &hearts; by <FooterLink href="https://limetech.io">asherkin</FooterLink> &bull; Powered by <FooterLink href="http://emscripten.org">Emscripten</FooterLink> & <FooterLink href="http://www.mr511.de/software/english.html">libelf</FooterLink><br/>
+          <small><FooterLink href="https://github.com/asherkin/vtable">I am Free Software, Fork me on GitHub</FooterLink></small>
+        </div>
+      </div>;
+
+      const LoadingGameList = (props) =>
+        <Layout title={startHelpText}>
+          <div style={{ fontSize: 100, marginBottom: 30 }}>
+            <Icon spin type="cog" />
           </div>
-        </div>,
+        </Layout>;
+
+      const PickAGame = (props) => {
+        return <Layout title={startHelpText}>
+          <SteamGameList games={props.games} />
+        </Layout>;
+      };
+
+      const DownloadingBinary = (props) => {
+        var helpText = <span>Downloading {props.game}...</span>;
+        return <Layout title={helpText}>
+          <ProgressBar style={{ marginBottom: 30 }} now={33} striped active />
+        </Layout>;
+      };
+
+      class State extends React.Component {
+        constructor(props) {
+          super(props);
+          this.state = {
+            selectedBinary: null,
+            gameList: null,
+          };
+        }
+        render() {
+          if (this.state.selectedBinary)
+            return <DownloadingBinary game={this.state.selectedBinary} />;
+          else if (this.state.gameList)
+            return <PickAGame games={this.state.gameList} />;
+          else
+            return <LoadingGameList />;
+        }
+      }
+
+      state = window.state = ReactDOM.render(
+        <State />,
         document.getElementById('content')
       );
+
+      window.setTimeout(() => state.setState({
+        gameList: [240, 300, 320, 440, 550, 730],
+      }), 1000);
     </script>
   </body>
 </html>
