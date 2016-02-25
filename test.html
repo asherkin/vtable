@@ -81,7 +81,6 @@
           return;
         }
 
-        console.log("symbols: " + programInfo.symbols.size());
         for (var i = 0; i < programInfo.symbols.size(); ++i) {
           var symbol = programInfo.symbols.get(i);
 
@@ -116,9 +115,9 @@
             var typeView = new Uint32Array(type.buffer, type.byteOffset, type.byteLength / 4);
             for (var i = 0; i < typeView.length; ++i) {
               var func = typeView[i];
-              var name = symbols[func] || '';
+              var name = (symbols[func] && cxa_demangle(symbols[func])) || '';
               var index = i / (programInfo.addressSize / 4);
-              output.textContent += (('   ' + index).substr(-4) + ' ' + hex(func) + ' ' + cxa_demangle(name) + '\n');
+              output.textContent += (('   ' + index).substr(-4) + ' ' + hex(func) + ' ' + name + '\n');
               if (programInfo.addressSize === 8) ++i;
             }
             document.body.appendChild(output);
@@ -131,9 +130,9 @@
             var vtableView = new Uint32Array(vtable.buffer, vtable.byteOffset, vtable.byteLength / 4);
             for (var i = 0; i < vtableView.length; ++i) {
               var func = vtableView[i];
-              var name = symbols[func] || '';
+              var name = (symbols[func] && cxa_demangle(symbols[func])) || '';
               var index = i / (programInfo.addressSize / 4);
-              output.textContent += (('   ' + (index - 2)).substr(-4) + ' ' + hex(func) + ' ' + cxa_demangle(name) + '\n');
+              output.textContent += (('   ' + (index - 2)).substr(-4) + ' ' + hex(func) + ' ' + name + '\n');
               if (programInfo.addressSize === 8) ++i;
             }
             document.body.appendChild(output);
