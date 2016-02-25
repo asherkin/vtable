@@ -10,6 +10,7 @@
 
       var symbols = {};
       var vtables = {};
+      var types = {};
 
       function cxa_demangle(func) {
         try {
@@ -96,25 +97,30 @@
             } catch(e) {
               console.log('Got vtable symbol outside of .rodata: ' + symbol.name);
             }
-
+          } else if (symbol.name.match(/^_ZTI/)) {
+            try {
+              types[symbol.name] = getRodata(programInfo, symbol.address, symbol.size);
+            } catch(e) {
+              console.log('Got typeinfo symbol outside of .rodata: ' + symbol.name);
+            }
           }
         }
 
         window.setTimeout(function() {
           document.body.innerHTML = '';
           for (var vtableSymbol in vtables) {
-            var output = '<pre>' + cxa_demangle(vtableSymbol) + '\n';
+            var output = document.createElement('pre');
+            output.textContent += cxa_demangle(vtableSymbol) + '\n';
             var vtable = vtables[vtableSymbol]
             var vtableView = new Uint32Array(vtable.buffer, vtable.byteOffset, vtable.byteLength / 4);
             for (var i = 0; i < vtableView.length; ++i) {
               var func = vtableView[i];
               var name = symbols[func] || '';
               var index = i / (programInfo.addressSize / 4);
-              output += (('   ' + (index - 2)).substr(-4) + ' ' + hex(func) + ' ' + cxa_demangle(name) + '\n');
+              output.textContent += (('   ' + (index - 2)).substr(-4) + ' ' + hex(func) + ' ' + cxa_demangle(name) + '\n');
               if (programInfo.addressSize === 8) ++i;
             }
-            output += '</pre>';
-            document.body.innerHTML += output;
+            document.body.appendChild(output);
           }
         }, 100);
       };
