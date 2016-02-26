@@ -23,6 +23,11 @@
 
       var stateManager = null;
 
+      var worker = new Worker('worker.js');
+      worker.onmessage = (event) => {
+        stateManager.setState({ programInfo: event.data });
+      };
+
       const Icon = (props) =>
         <i
           className={'fa fa-'+props.type+(props.spin ? ' fa-spin' : '')}
@@ -46,6 +51,8 @@
 
         xhr.addEventListener('load', (event) => {
           stateManager.setState({ binary: xhr.response });
+
+          worker.postMessage(xhr.response, [xhr.response]);
         });
 
         xhr.open('GET', stateManager.state.gameList.base + binary.path);
@@ -122,17 +129,26 @@
       };
 
       const DownloadingBinary = (props) => {
-        var helpText = <span>Downloading <Icon type="cloud-download" middle /> {props.binary} binary...</span>;
+        var helpText = <span>Downloading <Icon type="cloud-download" /> {props.binary} binary...</span>;
         return <Layout title={helpText}>
           <ProgressBar style={{ marginBottom: 30 }} now={props.loaded} max={props.total} striped active />
         </Layout>;
       };
 
       const ProcessingBinary = (props) => {
-        var helpText = <span>Processing <Icon type="cogs" middle /> {props.binary} binary...</span>;
+        var helpText = <span>Processing <Icon type="cogs" /> {props.binary} binary...</span>;
         return <Layout title={helpText}>
           <div style={{ fontSize: 100, marginBottom: 30 }}>
             <Icon type="circle-o-notch" spin />
+          </div>
+        </Layout>;
+      };
+
+      const PickASymbol = (props) => {
+        var helpText = <span>What are you looking <Icon type="search" /> for today?</span>;
+        return <Layout title={helpText}>
+          <div style={{ fontSize: '2em', marginBottom: 30 }}>
+            Man, that binary has {props.programInfo.symbols.length} symbols!
           </div>
         </Layout>;
       };
@@ -143,11 +159,15 @@
           this.state = {};
         }
         render() {
-          if (this.state.binary)
+          if (this.state.programInfo)
+            return <PickASymbol
+              programInfo={this.state.programInfo}
+            />;
+          else if (this.state.binary)
             return <ProcessingBinary
               binary={this.state.selectedBinary}
             />;
-          else if (this.state.selectedBinary)
+          else if (this.state.binaryDownloadProgress)
             return <DownloadingBinary
               binary={this.state.selectedBinary}
               loaded={this.state.binaryDownloadProgress.loaded}
@@ -162,7 +182,7 @@
         }
       }
 
-      stateManager = window.state = ReactDOM.render(
+      window.stateManager = stateManager = ReactDOM.render(
         <StateManager />,
         document.getElementById('content')
       );

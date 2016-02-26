@@ -20,7 +20,7 @@ deploy: gh-pages
 	cd gh-pages && rm -rf .git && git init && git add . && git commit -m 'Deploy to GitHub Pages'
 	@cd gh-pages && git push --force --quiet '$(GIT_REMOTE)' master:gh-pages > /dev/null 2>&1 && echo 'Site deployed to GitHub Pages!'
 
-gh-pages: index.html test.html vtable.js
+gh-pages: index.html worker.js test.html vtable.js
 	rm -rf gh-pages
 	mkdir -p gh-pages
 	cp $^ gh-pages/
