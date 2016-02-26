@@ -19,7 +19,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-bootstrap/0.28.3/react-bootstrap.js"></script>
     <script type="text/babel">
-      const { Row, Col, Image, ButtonToolbar, Button, ProgressBar } = ReactBootstrap;
+      const { Row, Col, Image, ButtonToolbar, Button, ProgressBar, Tooltip, OverlayTrigger } = ReactBootstrap;
 
       var stateManager = null;
 
@@ -28,12 +28,29 @@
         stateManager.setState({ programInfo: event.data });
       };
 
+      window.ondragenter = (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+      };
+
+      window.ondragover = (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+      };
+
+      window.ondrop = (event) => {
+        console.log('Hi.');
+
+        event.stopPropagation();
+        event.preventDefault();
+      };
+
       const Icon = (props) =>
         <i
           className={'fa fa-'+props.type+(props.spin ? ' fa-spin' : '')}
           style={{
-            fontSize: (props.size || 'inherit'),
-            verticalAlign: (props.middle ? 'middle' : 'inherit'),
+            fontSize: (props.size || undefined),
+            verticalAlign: (props.middle ? 'middle' : undefined),
           }}
         />;
 
@@ -92,28 +109,47 @@
           </div>
         </Col>
 
-      const SteamGameList = (props) => <Row>
-        {props.gameList.games.map((game) =>
-          <SteamGameButton key={game.appid} game={game} />
-        )}
-      </Row>;
+      const SteamGameList = (props) =>
+        <Row>
+          {props.gameList.games.map((game) =>
+            <SteamGameButton key={game.appid} game={game} />
+          )}
+        </Row>;
 
       const startHelpText =
         <span>Pick a <Icon type="steam" middle /> game or drop a <code>.so</code> file to start.</span>;
 
-      const Layout = (props) => <div className="text-center">
-        <div className="page-header">
-          <h1>VTable Dumper</h1>
-          <p className="lead">{props.title}</p>
-        </div>
-        <div className="page-header">
-          {props.children}
-        </div>
-        <div className="text-muted text-lowercase" style={{ marginBottom: 20 }}>
-          Made with <Icon type="heart" middle size="50%" /> by <FooterLink href="https://limetech.io">asherkin</FooterLink> <Icon type="circle" middle size="33%" /> Powered by <FooterLink href="http://emscripten.org">Emscripten</FooterLink> & <FooterLink href="http://www.mr511.de/software/english.html">libelf</FooterLink><br/>
-          <small><FooterLink href="https://github.com/asherkin/vtable">I am Free Software, Fork me on GitHub</FooterLink></small>
-        </div>
-      </div>;
+      const handleRestartButtonClick = (event) => {
+        var gameList = stateManager.state.gameList;
+        // TODO: This is a hack, find an alternative (some kind of state history?)
+        stateManager.state = { gameList: gameList };
+        stateManager.forceUpdate();
+      }
+
+      const restartButtonTooltip =
+        <Tooltip>Start Again</Tooltip>;
+
+      const RestartButton = (props) =>
+        <OverlayTrigger placement="left" overlay={restartButtonTooltip}>
+          <Button bsSize="xsmall" onClick={handleRestartButtonClick}>
+            <Icon type="undo" />
+          </Button>
+        </OverlayTrigger>
+
+      const Layout = (props) =>
+        <div className="text-center">
+          <div className="page-header">
+            <h1>VTable Dumper</h1>
+            <p className="lead">{props.title}</p>
+          </div>
+          <div className="page-header">
+            {props.children}
+          </div>
+          <div className="text-muted text-lowercase" style={{ marginBottom: 20 }}>
+            Made with <Icon type="heart" middle size="50%" /> by <FooterLink href="https://limetech.io">asherkin</FooterLink> <Icon type="circle" middle size="33%" /> Powered by <FooterLink href="http://emscripten.org">Emscripten</FooterLink> & <FooterLink href="http://www.mr511.de/software/english.html">libelf</FooterLink><br/>
+            <small><FooterLink href="https://github.com/asherkin/vtable">I am Free Software, Fork me on GitHub</FooterLink></small>
+          </div>
+        </div>;
 
       const LoadingGameList = (props) =>
         <Layout title={startHelpText}>
@@ -145,7 +181,7 @@
       };
 
       const PickASymbol = (props) => {
-        var helpText = <span>What are you looking <Icon type="search" /> for today?</span>;
+        var helpText = <span><RestartButton /> What are you <Icon type="search" /> looking for today?</span>;
         return <Layout title={helpText}>
           <div style={{ fontSize: '2em', marginBottom: 30 }}>
             Man, that binary has {props.programInfo.symbols.length} symbols!
