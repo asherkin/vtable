@@ -39,10 +39,33 @@
       };
 
       window.ondrop = (event) => {
-        console.log('Hi.');
-
         event.stopPropagation();
         event.preventDefault();
+
+        if (!event.dataTransfer.files || event.dataTransfer.files.length < 1) {
+          return;
+        }
+
+        var file = event.dataTransfer.files[0];
+
+        // TODO: This is a hack, find an alternative.
+        var gameList = stateManager.state.gameList;
+        stateManager.state = { gameList: gameList, selectedBinary: file.name, binaryDownloadProgress: { loaded: 0, total: 0 } };
+        stateManager.forceUpdate();
+
+        var fileReader = new FileReader();
+
+        fileReader.addEventListener('progress', (event) => {
+          stateManager.setState({ binaryDownloadProgress: { loaded: event.loaded, total: event.total } });
+        });
+
+        fileReader.addEventListener('load', (event) => {
+          stateManager.setState({ binary: event.target.result });
+
+          worker.postMessage(event.target.result, [event.target.result]);
+        });
+
+        fileReader.readAsArrayBuffer(file);
       };
 
       const Icon = (props) =>
@@ -58,7 +81,7 @@
         <a href={props.href} target="_blank" className="text-muted">{props.children}</a>
 
       const handleSteamGameButtonClick = (game, binary, event) => {
-        stateManager.setState({ selectedBinary: (game+' '+binary.type), binaryDownloadProgress: { loaded: 0, total: 0 } });
+        stateManager.setState({ selectedBinary: (game+' '+binary.type+' binary'), binaryDownloadProgress: { loaded: 0, total: 0 } });
 
         var xhr = new XMLHttpRequest();
 
@@ -120,8 +143,8 @@
         <span>Pick a <Icon type="steam" middle /> game or drop a <code>.so</code> file to start.</span>;
 
       const handleRestartButtonClick = (event) => {
-        var gameList = stateManager.state.gameList;
         // TODO: This is a hack, find an alternative (some kind of state history?)
+        var gameList = stateManager.state.gameList;
         stateManager.state = { gameList: gameList };
         stateManager.forceUpdate();
       }
@@ -165,14 +188,14 @@
       };
 
       const DownloadingBinary = (props) => {
-        var helpText = <span>Downloading <Icon type="cloud-download" /> {props.binary} binary...</span>;
+        var helpText = <span>Downloading <Icon type="cloud-download" /> {props.binary}...</span>;
         return <Layout title={helpText}>
           <ProgressBar style={{ marginBottom: 30 }} now={props.loaded} max={props.total} striped active />
         </Layout>;
       };
 
       const ProcessingBinary = (props) => {
-        var helpText = <span>Processing <Icon type="cogs" /> {props.binary} binary...</span>;
+        var helpText = <span>Processing <Icon type="cogs" /> {props.binary}...</span>;
         return <Layout title={helpText}>
           <div style={{ fontSize: 100, marginBottom: 30 }}>
             <Icon type="circle-o-notch" spin />
@@ -181,12 +204,20 @@
       };
 
       const PickASymbol = (props) => {
+        var errorText = <span><RestartButton /> Whoops, looks like there was a <Icon type="exclamation-triangle" /> problem.</span>;
         var helpText = <span><RestartButton /> What are you <Icon type="search" /> looking for today?</span>;
-        return <Layout title={helpText}>
-          <div style={{ fontSize: '2em', marginBottom: 30 }}>
-            Man, that binary has {props.programInfo.symbols.length} symbols!
-          </div>
-        </Layout>;
+        if (props.programInfo.error)
+          return <Layout title={errorText}>
+            <div style={{ fontSize: '2em', marginBottom: 30 }}>
+              {props.programInfo.error}
+            </div>
+          </Layout>;
+        else
+          return <Layout title={helpText}>
+            <div style={{ fontSize: '2em', marginBottom: 30 }}>
+              Man, that binary has {props.programInfo.symbols.length} symbols!
+            </div>
+          </Layout>;
       };
 
       class StateManager extends React.Component {
