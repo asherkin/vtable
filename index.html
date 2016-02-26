@@ -21,25 +21,46 @@
     <script type="text/babel">
       const { Row, Col, Image, ButtonToolbar, Button, ProgressBar } = ReactBootstrap;
 
-      var state = null;
+      var stateManager = null;
 
       const Icon = (props) =>
-        <i className={'fa fa-'+props.type+(props.large ? ' fa-2x' : '')+(props.spin ? ' fa-spin' : '')} />;
+        <i
+          className={'fa fa-'+props.type+(props.spin ? ' fa-spin' : '')}
+          style={{
+            fontSize: (props.size || 'inherit'),
+            verticalAlign: (props.middle ? 'middle' : 'inherit'),
+          }}
+        />;
 
       const FooterLink = (props) =>
         <a href={props.href} target="_blank" className="text-muted">{props.children}</a>
 
-      const handleSteamGameButtonClick = (appid, type, event) => {
-        state.setState({ selectedBinary: appid+'-'+type });
+      const handleSteamGameButtonClick = (game, binary, event) => {
+        stateManager.setState({ selectedBinary: (game+' '+binary.type), binaryDownloadProgress: { loaded: 0, total: 0 } });
+
+        var xhr = new XMLHttpRequest();
+
+        xhr.addEventListener('progress', (event) => {
+          stateManager.setState({ binaryDownloadProgress: { loaded: event.loaded, total: event.total } });
+        });
+
+        xhr.addEventListener('load', (event) => {
+          stateManager.setState({ binary: xhr.response });
+        });
+
+        xhr.open('GET', stateManager.state.gameList.base + binary.path);
+        xhr.responseType = 'arraybuffer';
+
+        xhr.send();
       }
 
       const SteamGameButton = (props) =>
-        <Col sm={4} className="text-center" style={{ position: 'relative' }}>
+        <Col xs={6} sm={4} className="text-center" style={{ position: 'relative' }}>
           <Image
             rounded responsive
             style={{ marginTop: 0, marginLeft: 'auto', marginBottom: 30, marginRight: 'auto' }}
-            src={'http://cdn.akamai.steamstatic.com/steam/apps/'+props.appid+'/header.jpg'}
-            alt={'Steam App '+props.appid}
+            src={'https://steamcdn-a.akamaihd.net/steam/apps/' + props.game.appid + '/header.jpg'}
+            alt={props.game.name}
           />
           <div className="steam-game-button-controls" style={{
             position: 'absolute', top: 0, left: 15, bottom: 30, right: 15,
@@ -48,20 +69,30 @@
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
             <ButtonToolbar>
-              <Button bsSize="large" onClick={handleSteamGameButtonClick.bind(null, props.appid, 'engine')}><Icon type="cogs" large /><br/>Engine</Button>
-              <Button bsSize="large" onClick={handleSteamGameButtonClick.bind(null, props.appid, 'game')}><Icon type="server" large /><br/>Server</Button>
+              {props.game.bins.map((binary) =>
+                <Button
+                  key={binary.type} bsSize="large"
+                  onClick={handleSteamGameButtonClick.bind(null, props.game.name, binary)}
+                >
+                  <Icon type={
+                    (binary.type === 'Engine') ? 'tachometer' :
+                    (binary.type === 'Server') ? 'server' :
+                    'question-circle'
+                  } size="2em" /><br/>{binary.type}
+                </Button>
+              )}
             </ButtonToolbar>
           </div>
         </Col>
 
       const SteamGameList = (props) => <Row>
-        {props.games.map((appid) =>
-          <SteamGameButton key={appid} appid={appid} />
+        {props.gameList.games.map((game) =>
+          <SteamGameButton key={game.appid} game={game} />
         )}
       </Row>;
 
       const startHelpText =
-        <span>Pick a <Icon type="steam" /> game or drop a <code>.so</code> file to start.</span>;
+        <span>Pick a <Icon type="steam" middle /> game or drop a <code>.so</code> file to start.</span>;
 
       const Layout = (props) => <div className="text-center">
         <div className="page-header">
@@ -72,7 +103,7 @@
           {props.children}
         </div>
         <div className="text-muted text-lowercase" style={{ marginBottom: 20 }}>
-          Made with &hearts; by <FooterLink href="https://limetech.io">asherkin</FooterLink> &bull; Powered by <FooterLink href="http://emscripten.org">Emscripten</FooterLink> & <FooterLink href="http://www.mr511.de/software/english.html">libelf</FooterLink><br/>
+          Made with <Icon type="heart" middle size="50%" /> by <FooterLink href="https://limetech.io">asherkin</FooterLink> <Icon type="circle" middle size="33%" /> Powered by <FooterLink href="http://emscripten.org">Emscripten</FooterLink> & <FooterLink href="http://www.mr511.de/software/english.html">libelf</FooterLink><br/>
           <small><FooterLink href="https://github.com/asherkin/vtable">I am Free Software, Fork me on GitHub</FooterLink></small>
         </div>
       </div>;
@@ -80,49 +111,76 @@
       const LoadingGameList = (props) =>
         <Layout title={startHelpText}>
           <div style={{ fontSize: 100, marginBottom: 30 }}>
-            <Icon spin type="cog" />
+            <Icon type="circle-o-notch" spin />
           </div>
         </Layout>;
 
       const PickAGame = (props) => {
         return <Layout title={startHelpText}>
-          <SteamGameList games={props.games} />
+          <SteamGameList gameList={props.gameList} />
         </Layout>;
       };
 
       const DownloadingBinary = (props) => {
-        var helpText = <span>Downloading {props.game}...</span>;
+        var helpText = <span>Downloading <Icon type="cloud-download" middle /> {props.binary} binary...</span>;
         return <Layout title={helpText}>
-          <ProgressBar style={{ marginBottom: 30 }} now={33} striped active />
+          <ProgressBar style={{ marginBottom: 30 }} now={props.loaded} max={props.total} striped active />
         </Layout>;
       };
 
-      class State extends React.Component {
+      const ProcessingBinary = (props) => {
+        var helpText = <span>Processing <Icon type="cogs" middle /> {props.binary} binary...</span>;
+        return <Layout title={helpText}>
+          <div style={{ fontSize: 100, marginBottom: 30 }}>
+            <Icon type="circle-o-notch" spin />
+          </div>
+        </Layout>;
+      };
+
+      class StateManager extends React.Component {
         constructor(props) {
           super(props);
-          this.state = {
-            selectedBinary: null,
-            gameList: null,
-          };
+          this.state = {};
         }
         render() {
-          if (this.state.selectedBinary)
-            return <DownloadingBinary game={this.state.selectedBinary} />;
+          if (this.state.binary)
+            return <ProcessingBinary
+              binary={this.state.selectedBinary}
+            />;
+          else if (this.state.selectedBinary)
+            return <DownloadingBinary
+              binary={this.state.selectedBinary}
+              loaded={this.state.binaryDownloadProgress.loaded}
+              total={this.state.binaryDownloadProgress.total}
+            />;
           else if (this.state.gameList)
-            return <PickAGame games={this.state.gameList} />;
+            return <PickAGame
+              gameList={this.state.gameList}
+            />;
           else
             return <LoadingGameList />;
         }
       }
 
-      state = window.state = ReactDOM.render(
-        <State />,
+      stateManager = window.state = ReactDOM.render(
+        <StateManager />,
         document.getElementById('content')
       );
 
-      window.setTimeout(() => state.setState({
-        gameList: [240, 300, 320, 440, 550, 730],
-      }), 1000);
+      const requestGamesList = () => {
+        var xhr = new XMLHttpRequest();
+
+        xhr.addEventListener('load', (event) => {
+          stateManager.setState({ gameList: xhr.response });
+        });
+
+        xhr.open('GET', 'https://users.alliedmods.net/~asherkin/vtable/games.json');
+        xhr.responseType = 'json';
+
+        xhr.send();
+      }
+
+      requestGamesList();
     </script>
   </body>
 </html>
