@@ -19,7 +19,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-bootstrap/0.28.3/react-bootstrap.js"></script>
     <script type="text/babel">
-      const { Row, Col, Image, ButtonToolbar, Button, ProgressBar, Tooltip, OverlayTrigger } = ReactBootstrap;
+      const { Row, Col, Image, ButtonToolbar, Button, ProgressBar, Tooltip, OverlayTrigger, Input, Nav, NavItem } = ReactBootstrap;
 
       var stateManager = null;
 
@@ -132,13 +132,6 @@
           </div>
         </Col>
 
-      const SteamGameList = (props) =>
-        <Row>
-          {props.gameList.games.map((game) =>
-            <SteamGameButton key={game.appid} game={game} />
-          )}
-        </Row>;
-
       const startHelpText =
         <span>Pick a <Icon type="steam" middle /> game or drop a <code>.so</code> file to start.</span>;
 
@@ -152,17 +145,19 @@
       const restartButtonTooltip =
         <Tooltip>Start Again</Tooltip>;
 
-      const RestartButton = (props) =>
-        <OverlayTrigger placement="left" overlay={restartButtonTooltip}>
-          <Button bsSize="xsmall" onClick={handleRestartButtonClick}>
-            <Icon type="undo" />
-          </Button>
-        </OverlayTrigger>
+      const restartButton =
+        <span style={{ position: 'absolute', marginLeft: -30 }}>
+          <OverlayTrigger placement="left" overlay={restartButtonTooltip}>
+              <Button bsSize="xsmall" onClick={handleRestartButtonClick}>
+                <Icon type="undo" />
+              </Button>
+          </OverlayTrigger>
+        </span>;
 
       const Layout = (props) =>
         <div className="text-center">
           <div className="page-header">
-            <h1>VTable Dumper</h1>
+            <h1>{props.showRestartButton && restartButton}VTable Dumper</h1>
             <p className="lead">{props.title}</p>
           </div>
           <div className="page-header">
@@ -183,7 +178,11 @@
 
       const PickAGame = (props) => {
         return <Layout title={startHelpText}>
-          <SteamGameList gameList={props.gameList} />
+          <Row>
+            {props.gameList.games.map((game) =>
+              <SteamGameButton key={game.appid} game={game} />
+            )}
+          </Row>
         </Layout>;
       };
 
@@ -203,19 +202,73 @@
         </Layout>;
       };
 
+      const handleSymbolSearchChange = (symbols, event) => {
+        var lowercaseQuery = event.target.value.toLowerCase();
+
+        var queryResults = [];
+
+        if (lowercaseQuery.length > 0) {
+          var otherQueryResults = [];
+
+          var symbolCount = symbols.length;
+          for (var i = 0; i < symbolCount; ++i) {
+            var symbol = symbols[i];
+
+            if (symbol.searchName.indexOf(lowercaseQuery) === -1) {
+              continue;
+            }
+
+            if (symbol.name.substring(0, 4) === '_ZTV') {
+              symbol.isClass = true;
+              symbol.displayName = symbol.demangled.substr(11);
+              queryResults.push(symbol);
+            } else {
+              symbol.isClass = false;
+              symbol.displayName = symbol.demangled;
+              otherQueryResults.push(symbol);
+            }
+          }
+
+          queryResults.sort((a, b) => a.displayName.length - b.displayName.length);
+          queryResults = queryResults.slice(0, 10);
+
+          if (queryResults.length < 10) {
+            otherQueryResults.sort((a, b) => a.displayName.length - b.displayName.length);
+            Array.prototype.push.apply(queryResults, otherQueryResults.slice(0, 10 - queryResults.length));
+          }
+        }
+
+        stateManager.setState({
+          symbolQueryString: event.target.value,
+          symbolQueryResults: queryResults,
+        });
+      }
+
       const PickASymbol = (props) => {
-        var errorText = <span><RestartButton /> Whoops, looks like there was a <Icon type="exclamation-triangle" /> problem.</span>;
-        var helpText = <span><RestartButton /> What are you <Icon type="search" /> looking for today?</span>;
+        var errorText = <span>Whoops, looks like there was a <Icon type="exclamation-triangle" /> problem.</span>;
+        var helpText = <span>What are you <Icon type="search" /> looking for today?</span>;
         if (props.programInfo.error)
-          return <Layout title={errorText}>
+          return <Layout title={errorText} showRestartButton>
             <div style={{ fontSize: '2em', marginBottom: 30 }}>
               {props.programInfo.error}
             </div>
           </Layout>;
         else
-          return <Layout title={helpText}>
-            <div style={{ fontSize: '2em', marginBottom: 30 }}>
-              Man, that binary has {props.programInfo.symbols.length} symbols!
+          return <Layout title={helpText} showRestartButton>
+            <div style={{ marginBottom: 30 }}>
+              <Input
+                type="text"
+                bsSize="large"
+                className="text-center"
+                placeholder="Enter a class or function name ..."
+                onChange={handleSymbolSearchChange.bind(null, props.programInfo.symbols)}
+                value={props.searchQuery}
+              />
+              <Nav bsStyle="pills" stacked>
+                {props.searchResults.map((symbol) =>
+                  <NavItem key={symbol.address}>{symbol.displayName}</NavItem>
+                )}
+              </Nav>
             </div>
           </Layout>;
       };
@@ -229,6 +282,8 @@
           if (this.state.programInfo)
             return <PickASymbol
               programInfo={this.state.programInfo}
+              searchQuery={this.state.symbolQueryString || ''}
+              searchResults={this.state.symbolQueryResults || []}
             />;
           else if (this.state.binary)
             return <ProcessingBinary

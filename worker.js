@@ -36,7 +36,7 @@ function cxa_demangle(func) {
   }
 }
 
-self.onmessage = (event) => {
+self.onmessage = function(event) {
   var programInfo = Module.process(event.data);
 
   var out = {
@@ -66,11 +66,42 @@ self.onmessage = (event) => {
     var symbol = programInfo.symbols.get(i);
 
     // Cut down on the amount of data we're sending over.
-    if (symbol.address === 0 || symbol.size === 0 || symbol.name.length === 0 || symbol.name.substring(0, 2) !== '_Z') {
+    if (symbol.address === 0 || symbol.size === 0 || symbol.name.length === 0) {
       continue;
     }
 
-    symbol.demangled = cxa_demangle(symbol.name);
+    // Sub-parts
+    if (symbol.name.indexOf('.') !== -1) {
+      continue;
+    }
+
+    // Demangle mangled symbols.
+    if (symbol.name.substring(0, 2) === '_Z') {
+      switch (symbol.name[2]) {
+        case 'G': // Guard Variables, Lifetime-Extended Temporaries, and Transaction-Safe Function Entry Points
+        case 'Z': // Local Entity
+        case 'U': // Unnamed Type
+          continue;
+        case 'T': // All things virtual
+          switch (symbol.name[3]) {
+            case 'V': // Virtual Table
+              break;
+            default:
+              continue;
+          }
+      }
+
+      symbol.demangled = cxa_demangle(symbol.name);
+    } else {
+      symbol.demangled = symbol.name;
+    }
+
+    symbol.searchName = symbol.demangled.toLowerCase();
+
+    var braceYourselfTheParamsAreComing = symbol.searchName.lastIndexOf('(');
+    if (braceYourselfTheParamsAreComing !== -1) {
+      symbol.searchName = symbol.searchName.substr(0, braceYourselfTheParamsAreComing);
+    }
 
     out.symbols.push(symbol);
   }
