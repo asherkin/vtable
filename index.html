@@ -10,6 +10,7 @@
     <style type="text/css">
       .steam-game-button-controls { opacity: 0; transition: opacity 0.2s; }
       .steam-game-button-controls:hover { opacity: 1; }
+      .table-borderless>tbody>tr>td, .table-borderless>tbody>tr>th, .table-borderless>tfoot>tr>td, .table-borderless>tfoot>tr>th, .table-borderless>thead>tr>td, .table-borderless>thead>tr>th { border-top: none; }
     </style>
   </head>
   <body>
@@ -19,13 +20,16 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-bootstrap/0.28.3/react-bootstrap.js"></script>
     <script type="text/babel">
-      const { Row, Col, Image, ButtonToolbar, Button, ProgressBar, Tooltip, OverlayTrigger, Input, Nav, NavItem } = ReactBootstrap;
+      const { Row, Col, Image, ButtonToolbar, Button, ProgressBar, Tooltip, OverlayTrigger, Input, Nav, NavItem, Table } = ReactBootstrap;
 
       var stateManager = null;
 
       var worker = new Worker('worker.js');
       worker.onmessage = (event) => {
-        stateManager.setState({ programInfo: event.data });
+        if (event.data.loaded || event.data.total)
+          stateManager.setState({ binaryProcessingProgress: event.data });
+        else
+          stateManager.setState({ programInfo: event.data });
       };
 
       window.ondragenter = (event) => {
@@ -60,7 +64,7 @@
         });
 
         fileReader.addEventListener('load', (event) => {
-          stateManager.setState({ binary: event.target.result });
+          stateManager.setState({ binary: event.target.result, binaryProcessingProgress: { loaded: 0, total: 0 } });
 
           worker.postMessage(event.target.result, [event.target.result]);
         });
@@ -90,7 +94,7 @@
         });
 
         xhr.addEventListener('load', (event) => {
-          stateManager.setState({ binary: xhr.response });
+          stateManager.setState({ binary: xhr.response, binaryProcessingProgress: { loaded: 0, total: 0 } });
 
           worker.postMessage(xhr.response, [xhr.response]);
         });
@@ -146,10 +150,29 @@
         <Tooltip>Start Again</Tooltip>;
 
       const restartButton =
-        <span style={{ position: 'absolute', marginLeft: -30 }}>
-          <OverlayTrigger placement="left" overlay={restartButtonTooltip}>
+        <span style={{ position: 'absolute', marginLeft: -36 }}>
+          <OverlayTrigger placement="bottom" overlay={restartButtonTooltip}>
               <Button bsSize="xsmall" onClick={handleRestartButtonClick}>
                 <Icon type="undo" />
+              </Button>
+          </OverlayTrigger>
+        </span>;
+
+      const handlePickNewSymbolButtonClick = (event) => {
+        stateManager.setState({
+          selectedClass: null,
+          selectedFunction: null,
+        });
+      }
+
+      const pickNewSymbolButtonTooltip =
+        <Tooltip>Pick a Different Symbol</Tooltip>;
+
+      const pickNewSymbolButton =
+        <span style={{ position: 'absolute', marginLeft: -60 }}>
+          <OverlayTrigger placement="bottom" overlay={pickNewSymbolButtonTooltip}>
+              <Button bsSize="xsmall" onClick={handlePickNewSymbolButtonClick}>
+                <Icon type="arrow-left" />
               </Button>
           </OverlayTrigger>
         </span>;
@@ -157,7 +180,7 @@
       const Layout = (props) =>
         <div className="text-center">
           <div className="page-header">
-            <h1>{props.showRestartButton && restartButton}VTable Dumper</h1>
+            <h1>{props.showPickNewSymbolButton && pickNewSymbolButton}{props.showRestartButton && restartButton}VTable Dumper</h1>
             <p className="lead">{props.title}</p>
           </div>
           <div className="page-header">
@@ -189,16 +212,14 @@
       const DownloadingBinary = (props) => {
         var helpText = <span>Downloading <Icon type="cloud-download" /> {props.binary}...</span>;
         return <Layout title={helpText}>
-          <ProgressBar style={{ marginBottom: 30 }} now={props.loaded} max={props.total} striped active />
+          <ProgressBar style={{ marginBottom: 30, height: 46 }} now={props.loaded} max={props.total} striped active />
         </Layout>;
       };
 
       const ProcessingBinary = (props) => {
         var helpText = <span>Processing <Icon type="cogs" /> {props.binary}...</span>;
         return <Layout title={helpText}>
-          <div style={{ fontSize: 100, marginBottom: 30 }}>
-            <Icon type="circle-o-notch" spin />
-          </div>
+          <ProgressBar style={{ marginBottom: 30, height: 46 }} now={props.loaded} max={props.total} striped active />
         </Layout>;
       };
 
@@ -227,7 +248,26 @@
           symbolQueryString: event.target.value,
           symbolQueryResults: queryResults,
         });
-      }
+      };
+
+      const handleClassSymbolClick = (selectedClass, event) => {
+        stateManager.setState({
+          selectedClass: selectedClass,
+        });
+      };
+
+      const handleFunctionSymbolClick = (selectedFunction, event) => {
+        var newState = {
+          selectedFunction: selectedFunction,
+        };
+
+        // If this function is only in one class, just select that one.
+        if (selectedFunction.classes.length === 1) {
+          newState.selectedClass = selectedFunction.classes[0];
+        }
+
+        stateManager.setState(newState);
+      };
 
       const PickASymbol = (props) => {
         var errorText = <span>Whoops, looks like there was a <Icon type="exclamation-triangle" /> problem.</span>;
@@ -243,22 +283,59 @@
           </Layout>;
         else
           return <Layout title={helpText} showRestartButton>
-            <div style={{ marginBottom: 30 }}>
-              <Input
-                type="text"
-                bsSize="large"
-                className="text-center"
-                placeholder="Enter a class or function name ..."
-                onChange={handleSymbolSearchChange.bind(null, props.programInfo)}
-                value={props.searchQuery}
-              />
-              <Nav bsStyle="pills" stacked>
-                {props.searchResults.map((symbol) =>
-                  <NavItem key={symbol.address}><code>{symbol.name}</code></NavItem>
-                )}
-              </Nav>
-            </div>
+            <Input
+              type="text"
+              bsSize="large"
+              className="text-center"
+              placeholder="Enter a class or function name ..."
+              onChange={handleSymbolSearchChange.bind(null, props.programInfo)}
+              value={props.searchQuery}
+            />
+            <Nav bsStyle="pills" stacked style={{ marginBottom: 15 }}>
+              {props.searchResults.map((symbol) =>
+                <NavItem key={symbol.address} onClick={
+                  (symbol.functions ? handleClassSymbolClick : handleFunctionSymbolClick).bind(null, symbol)
+                }>
+                  <code>{symbol.name}</code>
+                </NavItem>
+              )}
+            </Nav>
           </Layout>;
+      };
+
+      const DisambiguateSymbol = (props) => {
+        var helpText = <span>Hmm, that function exists in <Icon type="code-fork" /> multiple classes.</span>;
+        return <Layout title={helpText} showRestartButton showPickNewSymbolButton>
+          <Nav bsStyle="pills" stacked style={{ marginBottom: 30 }}>
+            {props.selectedFunction.classes.slice().sort((a, b) => a.name.length - b.name.length).map((symbol) =>
+              <NavItem key={symbol.address} onClick={
+                handleClassSymbolClick.bind(null, symbol)
+              }>
+                <code>{symbol.name}</code>
+              </NavItem>
+            )}
+          </Nav>
+        </Layout>;
+      };
+
+      const PrintVTable = (props) => {
+        var helpText = <span><Icon type="beer" /> You made it!</span>;
+        return <Layout title={helpText} showRestartButton showPickNewSymbolButton>
+          <div style={{ marginBottom: 30 }}>
+            <Table hover className="table-borderless text-left" style={{
+              margin: '0 auto',
+              width: 'initial',
+            }}>
+              <tbody>
+                {props.selectedClass.functions.map((symbol, index) =>
+                  <tr key={symbol.address} className={(props.selectedFunction && props.selectedFunction.address === symbol.address) ? 'info' : ''}>
+                    <th className="text-right">{index}</th><td><code>{symbol.name || ''}</code></td>
+                  </tr>
+                )}
+              </tbody>
+            </Table>
+          </div>
+        </Layout>;
       };
 
       class StateManager extends React.Component {
@@ -267,7 +344,16 @@
           this.state = {};
         }
         render() {
-          if (this.state.programInfo)
+          if (this.state.selectedClass)
+            return <PrintVTable
+              selectedClass={this.state.selectedClass}
+              selectedFunction={this.state.selectedFunction}
+            />;
+          else if (this.state.selectedFunction)
+            return <DisambiguateSymbol
+              selectedFunction={this.state.selectedFunction}
+            />;
+          else if (this.state.programInfo)
             return <PickASymbol
               programInfo={this.state.programInfo}
               searchQuery={this.state.symbolQueryString || ''}
@@ -276,6 +362,8 @@
           else if (this.state.binary)
             return <ProcessingBinary
               binary={this.state.selectedBinary}
+              loaded={this.state.binaryProcessingProgress.loaded}
+              total={this.state.binaryProcessingProgress.total}
             />;
           else if (this.state.binaryDownloadProgress)
             return <DownloadingBinary

@@ -86,13 +86,16 @@ self.onmessage = function(event) {
 
   var addressToFunctionMap = {};
 
-  for (var vtableIndex = 0; vtableIndex < listOfVtables.length; ++vtableIndex) {
+  var vtableCount = listOfVtables.length;
+  for (var vtableIndex = 0; vtableIndex < vtableCount; ++vtableIndex) {
+    self.postMessage({ loaded: vtableIndex + 1, total: vtableCount });
+
     var symbol = listOfVtables[vtableIndex];
     var name = cxa_demangle(symbol.name).substr(11);
 
     var data = getRodata(programInfo, symbol.address, symbol.size);
     if (!data) {
-      console.log('VTable for ' + name + ' is outside .rodata');
+      //console.log('VTable for ' + name + ' is outside .rodata');
       continue;
     }
 
@@ -100,6 +103,7 @@ self.onmessage = function(event) {
 
     var classInfo = {
       name: name,
+      address: symbol.address,
       searchKey: name.toLowerCase(),
       functions: [],
     };
@@ -133,6 +137,7 @@ self.onmessage = function(event) {
 
         functionInfo = addressToFunctionMap[functionAddress] = {
           name: functionName,
+          address: functionAddress,
           searchKey: searchKey,
           classes: [],
         };
