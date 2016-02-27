@@ -36,75 +36,116 @@ function cxa_demangle(func) {
   }
 }
 
+function getRodata(programInfo, address, size) {
+  for (var i = 0; i < programInfo.rodataChunks.size(); ++i) {
+    var chunk = programInfo.rodataChunks.get(i);
+
+    var start = address - (programInfo.rodataStart + chunk.offset);
+    var end = start + size;
+
+    if (start < 0 || end >= chunk.data.length) {
+      continue;
+    }
+
+    return chunk.data.subarray(start, end);
+  }
+
+  return null;
+}
+
 self.onmessage = function(event) {
   var programInfo = Module.process(event.data);
 
-  var out = {
-    error: programInfo.error,
-  };
-
-  if (out.error) {
+  if (programInfo.error.length > 0) {
     // Don't bother doing any more work.
-    self.postMessage(programInfo);
+    self.postMessage({ error: programInfo.error });
+    return;
   }
 
-  var transferables = [];
+  var listOfVtables = [];
+  var addresToSymbolMap = {};
 
-  out.addressSize = programInfo.addressSize;
-  out.rodataStart = programInfo.rodataStart;
-
-  out.rodataChunks = [];
-  for (var i = 0; i < programInfo.rodataChunks.size(); ++i) {
-    var rodataChunk = programInfo.rodataChunks.get(i);
-
-    transferables.push(rodataChunk.data.buffer);
-    out.rodataChunks.push(rodataChunk);
-  }
-
-  out.symbols = [];
   for (var i = 0; i < programInfo.symbols.size(); ++i) {
     var symbol = programInfo.symbols.get(i);
 
-    // Cut down on the amount of data we're sending over.
     if (symbol.address === 0 || symbol.size === 0 || symbol.name.length === 0) {
       continue;
     }
 
-    // Sub-parts
-    if (symbol.name.indexOf('.') !== -1) {
+    if (symbol.name.substring(0, 4) === '_ZTV') {
+      listOfVtables.push(symbol);
+    }
+
+    addresToSymbolMap[symbol.address] = symbol.name;
+  }
+
+  var out = {
+    classes: [],
+    functions: [],
+  };
+
+  var addressToFunctionMap = {};
+
+  for (var vtableIndex = 0; vtableIndex < listOfVtables.length; ++vtableIndex) {
+    var symbol = listOfVtables[vtableIndex];
+    var name = cxa_demangle(symbol.name).substr(11);
+
+    var data = getRodata(programInfo, symbol.address, symbol.size);
+    if (!data) {
+      console.log('VTable for ' + name + ' is outside .rodata');
       continue;
     }
 
-    // Demangle mangled symbols.
-    if (symbol.name.substring(0, 2) === '_Z') {
-      switch (symbol.name[2]) {
-        case 'G': // Guard Variables, Lifetime-Extended Temporaries, and Transaction-Safe Function Entry Points
-        case 'Z': // Local Entity
-        case 'U': // Unnamed Type
-          continue;
-        case 'T': // All things virtual
-          switch (symbol.name[3]) {
-            case 'V': // Virtual Table
-              break;
-            default:
-              continue;
-          }
+    var dataView = new Uint32Array(data.buffer, data.byteOffset, data.byteLength / Uint32Array.BYTES_PER_ELEMENT);
+
+    var classInfo = {
+      name: name,
+      searchKey: name.toLowerCase(),
+      functions: [],
+    };
+
+    for (var functionIndex = 2; functionIndex < dataView.length; ++functionIndex) {
+      var functionAddress = dataView[functionIndex];
+      var functionSymbol = addresToSymbolMap[functionAddress];
+
+      // Pure virtual.
+      if (functionAddress === 0 || functionSymbol === '__cxa_pure_virtual') {
+        // Pad to correct the indexes.
+        classInfo.functions.push({});
+        continue;
       }
 
-      symbol.demangled = cxa_demangle(symbol.name);
-    } else {
-      symbol.demangled = symbol.name;
+      // End of primary vtable.
+      if (!functionSymbol) {
+        break;
+      }
+
+      var functionName = cxa_demangle(functionSymbol);
+
+      var functionInfo = addressToFunctionMap[functionAddress];
+      if (!functionInfo) {
+        var searchKey = functionName.toLowerCase();
+
+        var startOfArgs = functionName.lastIndexOf('(');
+        if (startOfArgs !== -1) {
+          searchKey = searchKey.substr(0, startOfArgs);
+        }
+
+        functionInfo = addressToFunctionMap[functionAddress] = {
+          name: functionName,
+          searchKey: searchKey,
+          classes: [],
+        };
+
+        out.functions.push(functionInfo);
+      }
+
+      functionInfo.classes.push(classInfo);
+      classInfo.functions.push(functionInfo);
     }
 
-    symbol.searchName = symbol.demangled.toLowerCase();
-
-    var braceYourselfTheParamsAreComing = symbol.searchName.lastIndexOf('(');
-    if (braceYourselfTheParamsAreComing !== -1) {
-      symbol.searchName = symbol.searchName.substr(0, braceYourselfTheParamsAreComing);
-    }
-
-    out.symbols.push(symbol);
+    out.classes.push(classInfo);
   }
 
-  self.postMessage(out, transferables);
+  self.postMessage(out);
 };

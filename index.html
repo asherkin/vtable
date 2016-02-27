@@ -202,39 +202,24 @@
         </Layout>;
       };
 
-      const handleSymbolSearchChange = (symbols, event) => {
+      const handleSymbolSearchChange = (programInfo, event) => {
         var lowercaseQuery = event.target.value.toLowerCase();
 
         var queryResults = [];
-
         if (lowercaseQuery.length > 0) {
-          var otherQueryResults = [];
+          const filterFunction = (value) => value.searchKey.indexOf(lowercaseQuery) !== -1;
+          const sortFunction = (a, b) => a.name.length - b.name.length;
 
-          var symbolCount = symbols.length;
-          for (var i = 0; i < symbolCount; ++i) {
-            var symbol = symbols[i];
-
-            if (symbol.searchName.indexOf(lowercaseQuery) === -1) {
-              continue;
-            }
-
-            if (symbol.name.substring(0, 4) === '_ZTV') {
-              symbol.isClass = true;
-              symbol.displayName = symbol.demangled.substr(11);
-              queryResults.push(symbol);
-            } else {
-              symbol.isClass = false;
-              symbol.displayName = symbol.demangled;
-              otherQueryResults.push(symbol);
-            }
-          }
-
-          queryResults.sort((a, b) => a.displayName.length - b.displayName.length);
-          queryResults = queryResults.slice(0, 10);
+          queryResults = programInfo.classes
+            .filter(filterFunction)
+            .sort(sortFunction)
+            .slice(0, 10);
 
           if (queryResults.length < 10) {
-            otherQueryResults.sort((a, b) => a.displayName.length - b.displayName.length);
-            Array.prototype.push.apply(queryResults, otherQueryResults.slice(0, 10 - queryResults.length));
+            Array.prototype.push.apply(queryResults, programInfo.functions
+              .filter(filterFunction)
+              .sort(sortFunction)
+              .slice(0, 10 - queryResults.length));
           }
         }
 
@@ -248,9 +233,12 @@
         var errorText = <span>Whoops, looks like there was a <Icon type="exclamation-triangle" /> problem.</span>;
         var helpText = <span>What are you <Icon type="search" /> looking for today?</span>;
         if (props.programInfo.error)
-          return <Layout title={errorText} showRestartButton>
+          return <Layout title={errorText}>
             <div style={{ fontSize: '2em', marginBottom: 30 }}>
-              {props.programInfo.error}
+              {props.programInfo.error}<br/>
+              <Button bsStyle="primary" onClick={handleRestartButtonClick}>
+                <Icon type="undo" /> Try Again
+              </Button>
             </div>
           </Layout>;
         else
@@ -261,12 +249,12 @@
                 bsSize="large"
                 className="text-center"
                 placeholder="Enter a class or function name ..."
-                onChange={handleSymbolSearchChange.bind(null, props.programInfo.symbols)}
+                onChange={handleSymbolSearchChange.bind(null, props.programInfo)}
                 value={props.searchQuery}
               />
               <Nav bsStyle="pills" stacked>
                 {props.searchResults.map((symbol) =>
-                  <NavItem key={symbol.address}>{symbol.displayName}</NavItem>
+                  <NavItem key={symbol.address}><code>{symbol.name}</code></NavItem>
                 )}
               </Nav>
             </div>
