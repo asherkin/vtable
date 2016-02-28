@@ -86,15 +86,27 @@ self.onmessage = function(event) {
 
   var addressToFunctionMap = {};
 
+  var loaded = 0;
+  var total = 0;
+  var lastSend = 0;
+
   var vtableCount = listOfVtables.length;
+  total += vtableCount;
+
   for (var vtableIndex = 0; vtableIndex < vtableCount; ++vtableIndex) {
-    self.postMessage({ loaded: vtableIndex + 1, total: vtableCount });
+    loaded += 1;
 
     var symbol = listOfVtables[vtableIndex];
     var name = cxa_demangle(symbol.name).substr(11);
 
     var data = getRodata(programInfo, symbol.address, symbol.size);
     if (!data) {
+      var now = Date.now();
+      if (now - lastSend > 100) {
+        self.postMessage({ loaded: loaded, total: total });
+        lastSend = now;
+      }
+
       //console.log('VTable for ' + name + ' is outside .rodata');
       continue;
     }
@@ -108,7 +120,10 @@ self.onmessage = function(event) {
       functions: [],
     };
 
-    for (var functionIndex = 2; functionIndex < dataView.length; ++functionIndex) {
+    var functionCount = dataView.length;
+    total += functionCount - 2;
+
+    for (var functionIndex = 2; functionIndex < functionCount; ++functionIndex) {
       var functionAddress = dataView[functionIndex];
       var functionSymbol = addresToSymbolMap[functionAddress];
 
@@ -116,11 +131,13 @@ self.onmessage = function(event) {
       if (functionAddress === 0 || functionSymbol === '__cxa_pure_virtual') {
         // Pad to correct the indexes.
         classInfo.functions.push({});
+        loaded += 1;
         continue;
       }
 
       // End of primary vtable.
       if (!functionSymbol) {
+        loaded += functionCount - functionIndex;
         break;
       }
 
@@ -147,10 +164,19 @@ self.onmessage = function(event) {
 
       functionInfo.classes.push(classInfo);
       classInfo.functions.push(functionInfo);
+
+      loaded += 1;
+
+      var now = Date.now();
+      if (now - lastSend > 100) {
+        self.postMessage({ loaded: loaded, total: total });
+        lastSend = now;
+      }
     }
 
     out.classes.push(classInfo);
   }
 
+  self.postMessage({ loaded: loaded, total: total });
   self.postMessage(out);
 };
