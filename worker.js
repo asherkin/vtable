@@ -63,7 +63,7 @@ self.onmessage = function(event) {
   }
 
   var listOfVtables = [];
-  var addresToSymbolMap = {};
+  var addressToSymbolMap = {};
 
   for (var i = 0; i < programInfo.symbols.size(); ++i) {
     var symbol = programInfo.symbols.get(i);
@@ -76,7 +76,7 @@ self.onmessage = function(event) {
       listOfVtables.push(symbol);
     }
 
-    addresToSymbolMap[symbol.address] = symbol.name;
+    addressToSymbolMap[symbol.address] = symbol;
   }
 
   var out = {
@@ -117,6 +117,7 @@ self.onmessage = function(event) {
       name: name,
       address: symbol.address,
       searchKey: name.toLowerCase(),
+      isMultipleInheritance: dataView[1] && (addressToSymbolMap[dataView[1]].size > 12),
       functions: [],
     };
 
@@ -125,7 +126,7 @@ self.onmessage = function(event) {
 
     for (var functionIndex = 2; functionIndex < functionCount; ++functionIndex) {
       var functionAddress = dataView[functionIndex];
-      var functionSymbol = addresToSymbolMap[functionAddress];
+      var functionSymbol = addressToSymbolMap[functionAddress] && addressToSymbolMap[functionAddress].name;
 
       // Pure virtual.
       if (functionAddress === 0 || functionSymbol === '__cxa_pure_virtual') {

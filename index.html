@@ -22,7 +22,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-bootstrap/0.28.3/react-bootstrap.js"></script>
     <script type="text/babel">
-      const { Row, Col, Image, ButtonToolbar, Button, ProgressBar, Tooltip, OverlayTrigger, Input, Nav, NavItem, Table } = ReactBootstrap;
+      const { Row, Col, Image, ButtonToolbar, Button, ProgressBar, Tooltip, OverlayTrigger, Input, Nav, NavItem, Table, Alert } = ReactBootstrap;
 
       var stateManager = null;
 
@@ -320,18 +320,83 @@
         </Layout>;
       };
 
+      // TODO: Need to handle MI.
+      const formatVTable = (selectedClass) => {
+        var out = [];
+
+        var linuxIndex = 0;
+        var windowsIndex = 0;
+
+        var overloadCount = 1;
+        var lastSearchKey = null;
+
+        for (linuxIndex = 0; linuxIndex < selectedClass.functions.length; ++windowsIndex, ++linuxIndex) {
+          var func = selectedClass.functions[linuxIndex];
+
+          out.push({
+            address: func.address,
+            name: func.name,
+            linuxIndex: linuxIndex,
+            windowsIndex: undefined,
+          });
+
+          if (func.searchKey && func.searchKey === lastSearchKey) {
+            // TODO: Avoid the test every iteration?
+            if (func.searchKey.indexOf('::~') !== -1) {
+              windowsIndex--;
+            } else {
+              overloadCount++;
+            }
+          } else {
+            // TODO: This mess can probably be simplified when more awake.
+            if (overloadCount > 1) {
+              for (var j = 1; j <= overloadCount; ++j) {
+                out[linuxIndex - j].windowsIndex = (windowsIndex - (overloadCount - j) - 1);
+              }
+            }
+
+            overloadCount = 1;
+            out[linuxIndex].windowsIndex = windowsIndex;
+          }
+
+          lastSearchKey = func.searchKey;
+        }
+
+        // TODO: Need to construct a test class with overloads at the end to test this.
+        if (overloadCount > 1) {
+          for (var j = 1; j <= overloadCount; ++j) {
+            out[linuxIndex - j].windowsIndex = (windowsIndex - (overloadCount - j) - 1);
+          }
+        }
+
+        return out;
+      }
+
+      const multipleInheritanceWarning =
+        <Alert bsStyle="warning">
+          <strong>Some Indexes May Be Incorrect</strong><br/>
+          This class uses Multiple Inheritance, which is not currently accounted for by this tool.
+        </Alert>;
+
       const PrintVTable = (props) => {
         var helpText = <span><Icon type="beer" /> You made it!</span>;
         return <Layout title={helpText} showRestartButton showPickNewSymbolButton>
           <div style={{ marginBottom: 30 }}>
-            <Table hover className="table-borderless text-left" style={{
-              margin: '0 auto',
-              width: 'initial',
-            }}>
+            {props.selectedClass.isMultipleInheritance && multipleInheritanceWarning}
+            <Table hover>
+              <thead>
+                <tr>
+                  <th className="text-right">L</th>
+                  <th className="text-right">W</th>
+                  <th className="text-left">Function</th>
+                </tr>
+              </thead>
               <tbody>
-                {props.selectedClass.functions.map((symbol, index) =>
-                  <tr key={symbol.address} className={(props.selectedFunction && props.selectedFunction.address === symbol.address) ? 'info' : ''}>
-                    <th className="text-right">{index}</th><td><code>{symbol.name || ''}</code></td>
+                {formatVTable(props.selectedClass).map((func) =>
+                  <tr key={func.address} className={(props.selectedFunction && props.selectedFunction.address === func.address) ? 'info' : ''}>
+                    <th className="text-right">{func.linuxIndex}</th>
+                    <th className="text-right">{func.windowsIndex}</th>
+                    <td className="text-left"><code>{func.name}</code></td>
                   </tr>
                 )}
               </tbody>
