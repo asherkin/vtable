@@ -43,7 +43,7 @@ function getRodata(programInfo, address, size) {
     var start = address - (programInfo.rodataStart + chunk.offset);
     var end = start + size;
 
-    if (start < 0 || end >= chunk.data.length) {
+    if (start < 0 || end > chunk.data.length) {
       continue;
     }
 
