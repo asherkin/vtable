@@ -1,5 +1,5 @@
 var fs = require('fs');
-var elf = require('./vtable.js');
+var elf = require('../vtable.js');
 
 var Module = elf;
 
@@ -124,7 +124,7 @@ fs.readFile(inputFile, function(err, data) {
     functions: [],
   };
 
-  var listOfVtables = [];
+  var listOfVirtualClasses = [];
   var addressToSymbolMap = {};
   var addressToFunctionMap = {};
 
@@ -136,14 +136,14 @@ fs.readFile(inputFile, function(err, data) {
     }
 
     if (symbol.name.substr(0, 4) === '_ZTV') {
-      listOfVtables.push(symbol);
+      listOfVirtualClasses.push(symbol);
     }
 
     addressToSymbolMap[key(symbol.address)] = symbol;
   }
 
-  for (var vtableIndex = 0; vtableIndex < listOfVtables.length; ++vtableIndex) {
-    var symbol = listOfVtables[vtableIndex];
+  for (var classIndex = 0; classIndex < listOfVirtualClasses.length; ++classIndex) {
+    var symbol = listOfVirtualClasses[classIndex];
     var name = cxa_demangle(symbol.name).substr(11);
 
     var data = getRodata(programInfo, symbol.address, symbol.size);
@@ -152,8 +152,8 @@ fs.readFile(inputFile, function(err, data) {
       continue;
     }
 
-    console.log('');
-    console.log(name + ': ')
+    var currentVtable;
+    var vtables = [];
 
     var dataView = new Uint32Array(data.buffer, data.byteOffset, data.byteLength / Uint32Array.BYTES_PER_ELEMENT);
     for (var functionIndex = 0; functionIndex < dataView.length; ++functionIndex) {
@@ -168,13 +168,22 @@ fs.readFile(inputFile, function(err, data) {
       }
 
       var functionSymbol = addressToSymbolMap[key(functionAddress)];
+
+      if (!functionSymbol) {
+        currentVtable = [];
+        vtables.push(currentVtable);
+
+        // Skip the RTTI pointer and thisptr adjuster,
+        // We'll need to do more work here for virtual bases.
+        functionIndex += (programInfo.addressSize / 4);
+
+        continue;
+      }
+
       functionSymbol = functionSymbol && functionSymbol.name;
-
-      var functionName = functionSymbol && cxa_demangle(functionSymbol);
-
-      console.log('  ', address(functionAddress, programInfo.addressSize), functionName || '');
+      currentVtable.push({ address: address(functionAddress, programInfo.addressSize), symbol: functionSymbol });
     }
 
-    //break;
+    console.log(name, vtables);
   }
 });
