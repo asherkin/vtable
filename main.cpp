@@ -16,12 +16,29 @@
 #include <cstdio>
 #include <cstring>
 
+struct LargeNumber {
+  operator unsigned long long() const {
+    return ((unsigned long long)high << 32) | low;
+  }
+
+  LargeNumber operator=(unsigned long long i) {
+    high = i >> 32;
+    low = i & 0xFFFFFFFF;
+    isUnsigned = true;
+    return *this;
+  }
+
+  unsigned int high;
+  unsigned int low;
+  bool isUnsigned;
+};
+
 struct RodataChunk {
 #ifdef EMSCRIPTEN
   RodataChunk(): data(emscripten::val::null()) {}
 #endif
 
-  size_t offset;
+  LargeNumber offset;
 #ifdef EMSCRIPTEN
   emscripten::val data;
 #else
@@ -30,15 +47,15 @@ struct RodataChunk {
 };
 
 struct SymbolInfo {
-  size_t address;
-  size_t size;
+  LargeNumber address;
+  LargeNumber size;
   std::string name;
 };
 
 struct ProgramInfo {
   std::string error;
   int addressSize;
-  size_t rodataStart;
+  LargeNumber rodataStart;
   std::vector<RodataChunk> rodataChunks;
   std::vector<SymbolInfo> symbols;
 };
@@ -182,6 +199,11 @@ ProgramInfo process(std::string image) {
 
 #ifdef EMSCRIPTEN
 EMSCRIPTEN_BINDINGS(vtable) {
+  emscripten::value_object<LargeNumber>("LargeNumber")
+    .field("high", &LargeNumber::high)
+    .field("low", &LargeNumber::low)
+    .field("unsigned", &LargeNumber::isUnsigned);
+
   emscripten::value_object<ProgramInfo>("ProgramInfo")
     .field("error", &ProgramInfo::error)
     .field("addressSize", &ProgramInfo::addressSize)
