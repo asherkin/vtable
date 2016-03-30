@@ -12,7 +12,7 @@ function toArrayBuffer(buffer) {
   return ab;
 }
 
-function cxa_demangle(func) {
+function demangleSymbol(func) {
   try {
     if (typeof func !== 'string') {
       throw new Error('input not a string');
@@ -144,7 +144,7 @@ fs.readFile(inputFile, function(err, data) {
 
   for (var classIndex = 0; classIndex < listOfVirtualClasses.length; ++classIndex) {
     var symbol = listOfVirtualClasses[classIndex];
-    var name = cxa_demangle(symbol.name).substr(11);
+    var name = demangleSymbol(symbol.name).substr(11);
 
     var data = getRodata(programInfo, symbol.address, symbol.size);
     if (!data) {

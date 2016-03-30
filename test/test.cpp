@@ -23,18 +23,21 @@ struct CTwo: public COne {
   TESTFUNC( void Two() )
   TESTFUNC( void Three(int) )
   TESTFUNC( void Three(float) )
+  TESTFUNC( void Three(char) )
   TESTFUNC( void Five() )
 };
 
 struct CThree {
   TESTFUNC( void Six() )
+  TESTFUNC( void Seven() )
 };
 
 struct CFour: public CTwo, public CThree {
   TESTFUNC( void One() )
   TESTFUNC( void Two() )
   TESTFUNC( void Six() )
-  TESTFUNC( void Seven() )
+  TESTFUNC( void Six(float) )
+  TESTFUNC( void Eight() )
 };
 
 int main() {
