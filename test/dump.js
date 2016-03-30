@@ -15,7 +15,8 @@ function toArrayBuffer(buffer) {
 function demangleSymbol(func) {
   try {
     if (typeof func !== 'string') {
-      throw new Error('input not a string');
+      //throw new Error('input not a string');
+      return func;
     }
     var buf = Module['_malloc'](func.length + 1);
     Module['writeStringToMemory'](func, buf);
@@ -169,9 +170,10 @@ fs.readFile(inputFile, function(err, data) {
 
       var functionSymbol = addressToSymbolMap[key(functionAddress)];
 
-      if (!functionSymbol) {
+      // This could be the end of the vtable, or it could just be a pure/deleted func.
+      if (!functionSymbol && (vtables.length === 0 || !isZero(functionAddress))) {
         currentVtable = [];
-        vtables.push(currentVtable);
+        vtables.push({ offset: functionAddress, functions: currentVtable});
 
         // Skip the RTTI pointer and thisptr adjuster,
         // We'll need to do more work here for virtual bases.
@@ -184,6 +186,96 @@ fs.readFile(inputFile, function(err, data) {
       currentVtable.push({ address: address(functionAddress, programInfo.addressSize), symbol: functionSymbol });
     }
 
-    console.log(name, vtables);
+    //console.log(name, vtables);
+    console.log('');
+    console.log('Class ' + name);
+    for (var i = 0; i < vtables.length; ++i) {
+      console.log('  Table ' + i + ' (thisoffs = ' + ~(vtables[i].offset.low - 1) + ')');
+      console.log('    Lin Win Function');
+      windowsIndex = 0;
+      for (var j = 0; j < vtables[i].functions.length; ++j) {
+        var symbol = vtables[i].functions[j].symbol;
+        var displayName = demangleSymbol(symbol);
+
+        if (symbol === '__cxa_deleted_virtual' || symbol === '__cxa_pure_virtual') {
+          symbol = displayName = undefined;
+        }
+
+        var displayWindowsIndex = windowsIndex;
+
+        var isDestructor = displayName && displayName.indexOf('::~') !== -1;
+        var isFirstDestructor = isDestructor && (j + 1) < vtables[i].functions.length && displayName === demangleSymbol(vtables[i].functions[j + 1].symbol);
+        var isSecondDestructor = isDestructor && (j > 0 && displayName === demangleSymbol(vtables[i].functions[j - 1].symbol));
+        var isMultipleInheritanceFunc = !isDestructor && (i === 0 && vtables.find((d, n) => (n !== 0) && d.functions.find((d) => d.symbol && d.symbol.substr(0, 4) === '_ZTh' && displayName === demangleSymbol(d.symbol).substr(21))))
+
+        if (isSecondDestructor || isMultipleInheritanceFunc) {
+          displayWindowsIndex = ' ';
+        } else {
+          if (displayName && !isFirstDestructor) {
+            var previousOverloads = 0;
+            var remainingOverloads = 0;
+
+            var functionName = displayName;
+            var startOfArgs = functionName.lastIndexOf('(');
+            if (startOfArgs !== -1) {
+              functionName = functionName.substr(0, startOfArgs);
+            }
+
+            while ((j - (1 + previousOverloads)) >= 0) {
+              var previousFunctionName = vtables[i].functions[(j - (1 + previousOverloads))].symbol;
+              if (!previousFunctionName) {
+                break;
+              }
+
+              previousFunctionName = demangleSymbol(previousFunctionName);
+              var startOfArgs = previousFunctionName.lastIndexOf('(');
+              if (startOfArgs !== -1) {
+                previousFunctionName = previousFunctionName.substr(0, startOfArgs);
+              }
+
+              if (functionName !== previousFunctionName) {
+                break;
+              }
+
+              previousOverloads++;
+            }
+
+            while ((j + 1 + remainingOverloads) < vtables[i].functions.length) {
+              var nextFunctionName = vtables[i].functions[(j + 1 + remainingOverloads)].symbol;
+              if (!nextFunctionName) {
+                break;
+              }
+
+              nextFunctionName = demangleSymbol(nextFunctionName);
+              var startOfArgs = nextFunctionName.lastIndexOf('(');
+              if (startOfArgs !== -1) {
+                nextFunctionName = nextFunctionName.substr(0, startOfArgs);
+              }
+
+              if (functionName !== nextFunctionName) {
+                break;
+              }
+
+              remainingOverloads++;
+            }
+
+            displayWindowsIndex += remainingOverloads;
+            displayWindowsIndex -= previousOverloads;
+          }
+
+          windowsIndex++;
+        }
+
+        if (symbol && symbol.substr(0, 4) === '_ZTh') {
+          displayName = displayName.substr(21);
+        }
+
+        if (!displayName) {
+          displayName = '(pure virtual function)';
+        }
+
+        console.log('    ' + ('  ' + j).substr(-3) + ' ' + ('  ' + displayWindowsIndex).substr(-3) + ' ' + displayName);
+      }
+    }
   }
 });
