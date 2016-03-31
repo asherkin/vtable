@@ -1,7 +1,5 @@
 var fs = require('fs');
-var elf = require('../vtable.js');
-
-var Module = elf;
+var Module = require('../vtable.js');
 
 function toArrayBuffer(buffer) {
   var arrayBuffer = new ArrayBuffer(buffer.length);
@@ -15,10 +13,6 @@ function toArrayBuffer(buffer) {
 }
 
 function demangleSymbol(func) {
-  if (func === null) {
-    return null;
-  }
-
   try {
     if (typeof func !== 'string') {
       throw new Error('input not a string');
@@ -44,7 +38,7 @@ function demangleSymbol(func) {
         throw new Error('encountered an unknown error');
     }
   } catch(e) {
-    console.log('Failed to demangle \'' + func + '\' (' + e.message + ')');
+    console.error('Failed to demangle \'' + func + '\' (' + e.message + ')');
     return func;
   } finally {
     if (buf) Module['_free'](buf);
@@ -78,44 +72,6 @@ function getRodata(programInfo, address, size) {
   return null;
 }
 
-function shouldSkipWindowsFunction(classInfo, vtableIndex, linuxIndex, displayName) {
-  return (
-    displayName &&
-    displayName.indexOf('::~') !== -1
-  ) ? (
-    linuxIndex > 0 &&
-    displayName === demangleSymbol(classInfo.vtables[vtableIndex].functions[linuxIndex - 1].symbol)
-  ) : (
-    vtableIndex === 0 &&
-    classInfo.vtables.find((d, n) => (
-      n !== 0 &&
-      d.functions.find((d) => (
-        d.symbol &&
-        d.symbol.substr(0, 4) === '_ZTh' &&
-        displayName === demangleSymbol(d.symbol).substr(21)
-      ))
-    ))
-  );
-}
-
-function getFunctionName(demangledName, withNamespace) {
-  var functionName = demangledName;
-
-  var startOfArgs = functionName.lastIndexOf('(');
-  if (startOfArgs !== -1) {
-    functionName = functionName.substr(0, startOfArgs);
-  }
-
-  if (!withNamespace) {
-    var startOfName = functionName.lastIndexOf('::');
-    if (startOfName !== -1) {
-      functionName = functionName.substr(startOfName + 2);
-    }
-  }
-
-  return functionName;
-}
-
 var loaded = 0;
 var total = 0;
 var lastProgressUpdate = 0;
@@ -126,7 +82,7 @@ function sendProgressUpdate(force) {
   }
 
   //self.postMessage({ loaded: loaded, total: total });
-  //console.log(loaded, total);
+  //console.info(loaded, total);
   lastProgressUpdate = now;
 }
 
@@ -138,25 +94,34 @@ function hex64(n) {
   return hex32(n.high) + hex32(n.low);
 }
 
-function address(n, s) {
-  if (s === 8 || n.high !== 0) {
-    return hex64(n);
-  } else {
-    return hex32(n.low);
-  }
-}
-
 function key(n) {
   return hex64(n);
-}
-
-function matches(a, b) {
-  return a.low === b.low && a.high === b.high;
 }
 
 function isZero(n) {
   return n.low === 0 && n.high === 0;
 }
+
+//////////////////////////
+
+function shouldSkipWindowsFunction(classInfo, vtableIndex, functionIndex, functionInfo) {
+  return (
+    functionInfo.name.indexOf('::~') !== -1
+  ) ? (
+    functionIndex > 0 &&
+    functionInfo.name === classInfo.vtables[vtableIndex].functions[functionIndex - 1].name
+  ) : (
+    classInfo.vtables.find((d, n) => (
+      n > vtableIndex &&
+      d.functions.find((d) => (
+        d.isThunk &&
+        functionInfo.name === d.name
+      ))
+    ))
+  );
+}
+
+//////////////////////////
 
 if (process.argv.length <= 2) {
   throw 'Usage: ' + process.argv[0] + ' ' + process.argv[1] + ' <file>';
@@ -169,13 +134,13 @@ fs.readFile(inputFile, function(err, data) {
     throw err;
   }
 
-  var programInfo = elf.process(toArrayBuffer(data));
+  var programInfo = Module['process'](toArrayBuffer(data));
   if (programInfo.error.length > 0) {
     throw programInfo.error;
   }
 
-  console.log("address size: " + programInfo.addressSize);
-  console.log("symbols: " + programInfo.symbols.size());
+  console.info("address size: " + programInfo.addressSize);
+  console.info("symbols: " + programInfo.symbols.size());
 
   var listOfVirtualClasses = [];
   var addressToSymbolMap = {};
@@ -194,13 +159,14 @@ fs.readFile(inputFile, function(err, data) {
     addressToSymbolMap[key(symbol.address)] = symbol;
   }
 
-  console.log("virtual classes: " + listOfVirtualClasses.length);
+  console.info("virtual classes: " + listOfVirtualClasses.length);
 
   var pureVirtualFunction = {
     id: null,
-    name: null,
+    name: '(pure virtual function)',
     symbol: null,
     searchKey: null,
+    isThunk: false,
     classes: [],
   };
 
@@ -220,7 +186,7 @@ fs.readFile(inputFile, function(err, data) {
 
     var data = getRodata(programInfo, symbol.address, symbol.size);
     if (!data) {
-      //console.log('VTable for ' + name + ' is outside .rodata');
+      //console.warn('VTable for ' + name + ' is outside .rodata');
       sendProgressUpdate(false);
       continue;
     }
@@ -281,17 +247,35 @@ fs.readFile(inputFile, function(err, data) {
 
       var functionInfo = addressToFunctionMap[key(functionAddress)];
       if (!functionInfo) {
-        var functionName = demangleSymbol(functionSymbol);
+        var functionSignature = demangleSymbol(functionSymbol);
+
+        var functionName = functionSignature;
+        var startOfArgs = functionName.lastIndexOf('(');
+        if (startOfArgs !== -1) {
+          functionName = functionName.substr(0, startOfArgs);
+        }
+
+        var functionShortName = functionName;
+        var startOfName = functionShortName.lastIndexOf('::');
+        if (startOfName !== -1) {
+          functionShortName = functionShortName.substr(startOfName + 2);
+        }
+
         functionInfo = {
           id: key(functionAddress),
-          name: functionName,
+          name: functionSignature,
           symbol: functionSymbol,
-          searchKey: getFunctionName(functionName, true).toLowerCase(),
+          searchKey: functionName.toLowerCase(),
+          shortName: functionShortName,
+          isThunk: false,
           classes: [],
         };
 
         if (functionSymbol.substr(0, 4) !== '_ZTh') {
           out.functions.push(functionInfo);
+        } else {
+          functionInfo.isThunk = true;
+          functionInfo.name = functionSignature.substr(21);
         }
 
         addressToFunctionMap[key(functionAddress)] = functionInfo;
@@ -311,7 +295,7 @@ fs.readFile(inputFile, function(err, data) {
   sendProgressUpdate(true);
   //self.postMessage(out);
 
-  return;
+  //return;
 
   for (var classIndex = 0; classIndex < out.classes.length; ++classIndex) {
     var classInfo = out.classes[classIndex];
@@ -320,8 +304,13 @@ fs.readFile(inputFile, function(err, data) {
     console.log('Class ' + classInfo.name);
 
     if (classInfo.hasMissingFunctions) {
-      console.log('  Missing (pure or deleted) virtual functions,');
-      console.log('  Windows offsets may be incorrect for overloaded functions.');
+      console.log('  Missing (pure or deleted) virtual functions');
+    }
+    if (classInfo.vtables.length > 1) {
+      console.log('  Uses multiple inheritance');
+    }
+    if (classInfo.hasMissingFunctions || classInfo.vtables.length > 1) {
+        console.log('  Windows offsets may be incorrect');
     }
 
     for (var vtableIndex = 0; vtableIndex < classInfo.vtables.length; ++vtableIndex) {
@@ -330,35 +319,27 @@ fs.readFile(inputFile, function(err, data) {
       console.log('  Table ' + vtableIndex + ' (thisoffs = ' + vtableInfo.offset + ')');
       console.log('    Lin Win Function');
 
-      windowsIndex = 0;
+      var windowsIndex = 0;
       for (var linuxIndex = 0; linuxIndex < vtableInfo.functions.length; ++linuxIndex) {
-        var symbol = vtableInfo.functions[linuxIndex].symbol;
-        var displayName = demangleSymbol(symbol);
+        var functionInfo = vtableInfo.functions[linuxIndex];
 
         var displayWindowsIndex = windowsIndex;
-        if (shouldSkipWindowsFunction(classInfo, vtableIndex, linuxIndex, displayName)) {
+        if (shouldSkipWindowsFunction(classInfo, vtableIndex, linuxIndex, functionInfo)) {
           displayWindowsIndex = ' ';
         } else {
-          if (displayName) {
+          if (functionInfo.symbol) {
             var previousOverloads = 0;
             var remainingOverloads = 0;
 
-            var functionName = getFunctionName(displayName, false);
-
             while ((linuxIndex - (1 + previousOverloads)) >= 0) {
               var previousFunctionIndex = linuxIndex - (1 + previousOverloads);
-              var previousFunctionName = vtableInfo.functions[previousFunctionIndex].symbol;
-              if (!previousFunctionName) {
+              var previousFunctionInfo = vtableInfo.functions[previousFunctionIndex];
+
+              if (!functionInfo.symbol || shouldSkipWindowsFunction(classInfo, vtableIndex, previousFunctionIndex, previousFunctionInfo)) {
                 break;
               }
 
-              previousFunctionName = demangleSymbol(previousFunctionName);
-              if (shouldSkipWindowsFunction(classInfo, vtableIndex, previousFunctionIndex, previousFunctionName)) {
-                break;
-              }
-
-              previousFunctionName = getFunctionName(previousFunctionName, false);
-              if (functionName !== previousFunctionName) {
+              if (functionInfo.shortName !== previousFunctionInfo.shortName) {
                 break;
               }
 
@@ -367,18 +348,13 @@ fs.readFile(inputFile, function(err, data) {
 
             while ((linuxIndex + 1 + remainingOverloads) < vtableInfo.functions.length) {
               var nextFunctionIndex = linuxIndex + 1 + remainingOverloads;
-              var nextFunctionName = vtableInfo.functions[nextFunctionIndex].symbol;
-              if (!nextFunctionName) {
+              var nextFunctionInfo = vtableInfo.functions[nextFunctionIndex];
+
+              if (!functionInfo.symbol || shouldSkipWindowsFunction(classInfo, vtableIndex, nextFunctionIndex, nextFunctionInfo)) {
                 break;
               }
 
-              nextFunctionName = demangleSymbol(nextFunctionName);
-              if (shouldSkipWindowsFunction(classInfo, vtableIndex, nextFunctionIndex, nextFunctionName)) {
-                break;
-              }
-
-              nextFunctionName = getFunctionName(nextFunctionName, false);
-              if (functionName !== nextFunctionName) {
+              if (functionInfo.shortName !== nextFunctionInfo.shortName) {
                 break;
               }
 
@@ -392,15 +368,7 @@ fs.readFile(inputFile, function(err, data) {
           windowsIndex++;
         }
 
-        if (symbol && symbol.substr(0, 4) === '_ZTh') {
-          displayName = displayName.substr(21);
-        }
-
-        if (!displayName) {
-          displayName = '(pure virtual function)';
-        }
-
-        console.log('    ' + ('  ' + linuxIndex).substr(-3) + ' ' + ('  ' + displayWindowsIndex).substr(-3) + ' ' + displayName);
+        console.log('    ' + ('  ' + linuxIndex).substr(-3) + ' ' + ('  ' + displayWindowsIndex).substr(-3) + ' ' + functionInfo.name);
       }
     }
   }

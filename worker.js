@@ -1,7 +1,7 @@
 var Module = {};
 importScripts('vtable.js');
 
-function cxa_demangle(func) {
+function demangleSymbol(func) {
   try {
     if (typeof func !== 'string') {
       throw new Error('input not a string');
@@ -27,7 +27,7 @@ function cxa_demangle(func) {
         throw new Error('encountered an unknown error');
     }
   } catch(e) {
-    console.log('Failed to demangle \'' + func + '\' (' + e.message + ')');
+    console.error('Failed to demangle \'' + func + '\' (' + e.message + ')');
     return func;
   } finally {
     if (buf) Module['_free'](buf);
@@ -37,11 +37,19 @@ function cxa_demangle(func) {
 }
 
 function getRodata(programInfo, address, size) {
+  if (programInfo.rodataStart.high !== 0 || address.high !== 0 || size.high !== 0) {
+    throw '>= 32-bit rodata is not supported';
+  }
+
   for (var i = 0; i < programInfo.rodataChunks.size(); ++i) {
     var chunk = programInfo.rodataChunks.get(i);
 
-    var start = address - (programInfo.rodataStart + chunk.offset);
-    var end = start + size;
+    if (chunk.offset.high !== 0) {
+      throw '>= 32-bit rodata is not supported';
+    }
+
+    var start = address.low - (programInfo.rodataStart.low + chunk.offset.low);
+    var end = start + size.low;
 
     if (start < 0 || end > chunk.data.length) {
       continue;
@@ -53,6 +61,35 @@ function getRodata(programInfo, address, size) {
   return null;
 }
 
+var loaded = 0;
+var total = 0;
+var lastProgressUpdate = 0;
+function sendProgressUpdate(force) {
+  var now = Date.now();
+  if (!force && (now - lastProgressUpdate) < 50) {
+    return;
+  }
+
+  self.postMessage({ loaded: loaded, total: total });
+  lastProgressUpdate = now;
+}
+
+function hex32(n) {
+  return (n === 0) ? '00000000' : ('0000000' + ((n|0)+4294967296).toString(16)).substr(-8);
+}
+
+function hex64(n) {
+  return hex32(n.high) + hex32(n.low);
+}
+
+function key(n) {
+  return hex64(n);
+}
+
+function isZero(n) {
+  return n.low === 0 && n.high === 0;
+}
+
 self.onmessage = function(event) {
   var programInfo = Module.process(event.data);
 
@@ -62,22 +99,36 @@ self.onmessage = function(event) {
     return;
   }
 
-  var listOfVtables = [];
+  console.info("address size: " + programInfo.addressSize);
+  console.info("symbols: " + programInfo.symbols.size());
+
+  var listOfVirtualClasses = [];
   var addressToSymbolMap = {};
 
   for (var i = 0; i < programInfo.symbols.size(); ++i) {
     var symbol = programInfo.symbols.get(i);
 
-    if (symbol.address === 0 || symbol.size === 0 || symbol.name.length === 0) {
+    if (isZero(symbol.address) || isZero(symbol.size) || symbol.name.length === 0) {
       continue;
     }
 
-    if (symbol.name.substring(0, 4) === '_ZTV') {
-      listOfVtables.push(symbol);
+    if (symbol.name.substr(0, 4) === '_ZTV') {
+      listOfVirtualClasses.push(symbol);
     }
 
-    addressToSymbolMap[symbol.address] = symbol;
+    addressToSymbolMap[key(symbol.address)] = symbol;
   }
+
+  console.info("virtual classes: " + listOfVirtualClasses.length);
+
+  var pureVirtualFunction = {
+    id: null,
+    name: '(pure virtual function)',
+    symbol: null,
+    searchKey: null,
+    isThunk: false,
+    classes: [],
+  };
 
   var out = {
     classes: [],
@@ -86,98 +137,121 @@ self.onmessage = function(event) {
 
   var addressToFunctionMap = {};
 
-  var loaded = 0;
-  var total = 0;
-  var lastSend = 0;
-
-  var vtableCount = listOfVtables.length;
-  total += vtableCount;
-
-  for (var vtableIndex = 0; vtableIndex < vtableCount; ++vtableIndex) {
+  total += listOfVirtualClasses.length;
+  for (var classIndex = 0; classIndex < listOfVirtualClasses.length; ++classIndex) {
     loaded += 1;
 
-    var symbol = listOfVtables[vtableIndex];
-    var name = cxa_demangle(symbol.name).substr(11);
+    var symbol = listOfVirtualClasses[classIndex];
+    var name = demangleSymbol(symbol.name).substr(11);
 
     var data = getRodata(programInfo, symbol.address, symbol.size);
     if (!data) {
-      var now = Date.now();
-      if (now - lastSend > 100) {
-        self.postMessage({ loaded: loaded, total: total });
-        lastSend = now;
-      }
-
-      //console.log('VTable for ' + name + ' is outside .rodata');
+      //console.warn('VTable for ' + name + ' is outside .rodata');
+      sendProgressUpdate(false);
       continue;
     }
 
-    var dataView = new Uint32Array(data.buffer, data.byteOffset, data.byteLength / Uint32Array.BYTES_PER_ELEMENT);
-
     var classInfo = {
+      id: key(symbol.address),
       name: name,
-      address: symbol.address,
       searchKey: name.toLowerCase(),
-      isMultipleInheritance: dataView[1] && (addressToSymbolMap[dataView[1]].size > 12),
-      functions: [],
+      vtables: [],
+      hasMissingFunctions: false,
     };
 
-    var functionCount = dataView.length;
-    total += functionCount - 2;
+    var currentVtable;
+    var dataView = new Uint32Array(data.buffer, data.byteOffset, data.byteLength / Uint32Array.BYTES_PER_ELEMENT);
+    total += dataView.length;
+    for (var functionIndex = 0; functionIndex < dataView.length; ++functionIndex) {
+      loaded += 1;
 
-    for (var functionIndex = 2; functionIndex < functionCount; ++functionIndex) {
-      var functionAddress = dataView[functionIndex];
-      var functionSymbol = addressToSymbolMap[functionAddress] && addressToSymbolMap[functionAddress].name;
+      var functionAddress = {
+        high: 0,
+        low: dataView[functionIndex],
+        unsigned: true,
+      };
 
-      // Pure virtual.
-      if (functionAddress === 0 || functionSymbol === '__cxa_pure_virtual') {
-        // Pad to correct the indexes.
-        classInfo.functions.push({});
+      if (programInfo.addressSize > Uint32Array.BYTES_PER_ELEMENT) {
+        functionAddress.high = dataView[++functionIndex];
         loaded += 1;
+      }
+
+      var functionSymbol = addressToSymbolMap[key(functionAddress)];
+
+      // This could be the end of the vtable, or it could just be a pure/deleted func.
+      if (!functionSymbol && (classInfo.vtables.length === 0 || !isZero(functionAddress))) {
+        currentVtable = [];
+        classInfo.vtables.push({
+          offset: ~(functionAddress.low - 1),
+          functions: currentVtable,
+        });
+
+        // Skip the RTTI pointer and thisptr adjuster,
+        // We'll need to do more work here for virtual bases.
+        var skip = programInfo.addressSize / Uint32Array.BYTES_PER_ELEMENT;
+        functionIndex += skip;
+        loaded += skip;
+
+        sendProgressUpdate(false);
         continue;
       }
 
-      // End of primary vtable.
-      if (!functionSymbol) {
-        loaded += functionCount - functionIndex;
-        break;
+      var functionSymbol = functionSymbol && functionSymbol.name;
+      if (!functionSymbol || functionSymbol === '__cxa_deleted_virtual' || functionSymbol === '__cxa_pure_virtual') {
+        classInfo.hasMissingFunctions = true;
+        currentVtable.push(pureVirtualFunction);
+
+        sendProgressUpdate(false);
+        continue;
       }
 
-      var functionName = cxa_demangle(functionSymbol);
-
-      var functionInfo = addressToFunctionMap[functionAddress];
+      var functionInfo = addressToFunctionMap[key(functionAddress)];
       if (!functionInfo) {
-        var searchKey = functionName.toLowerCase();
+        var functionSignature = demangleSymbol(functionSymbol);
 
+        var functionName = functionSignature;
         var startOfArgs = functionName.lastIndexOf('(');
         if (startOfArgs !== -1) {
-          searchKey = searchKey.substr(0, startOfArgs);
+          functionName = functionName.substr(0, startOfArgs);
         }
 
-        functionInfo = addressToFunctionMap[functionAddress] = {
-          name: functionName,
-          address: functionAddress,
-          searchKey: searchKey,
+        var functionShortName = functionName;
+        var startOfName = functionShortName.lastIndexOf('::');
+        if (startOfName !== -1) {
+          functionShortName = functionShortName.substr(startOfName + 2);
+        }
+
+        functionInfo = {
+          id: key(functionAddress),
+          name: functionSignature,
+          symbol: functionSymbol,
+          searchKey: functionName.toLowerCase(),
+          shortName: functionShortName,
+          isThunk: false,
           classes: [],
         };
 
-        out.functions.push(functionInfo);
+        if (functionSymbol.substr(0, 4) !== '_ZTh') {
+          out.functions.push(functionInfo);
+        } else {
+          functionInfo.isThunk = true;
+          functionInfo.name = functionSignature.substr(21);
+        }
+
+        addressToFunctionMap[key(functionAddress)] = functionInfo;
       }
 
       functionInfo.classes.push(classInfo);
-      classInfo.functions.push(functionInfo);
+      currentVtable.push(functionInfo);
 
-      loaded += 1;
-
-      var now = Date.now();
-      if (now - lastSend > 100) {
-        self.postMessage({ loaded: loaded, total: total });
-        lastSend = now;
-      }
+      sendProgressUpdate(false);
     }
 
     out.classes.push(classInfo);
+
+    sendProgressUpdate(false);
   }
 
-  self.postMessage({ loaded: loaded, total: total });
+  sendProgressUpdate(true);
   self.postMessage(out);
 };

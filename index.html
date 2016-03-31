@@ -296,7 +296,7 @@
             />
             <Nav bsStyle="pills" stacked style={{ marginBottom: 15 }}>
               {props.searchResults.map((symbol) =>
-                <NavItem key={symbol.address} onClick={
+                <NavItem key={symbol.id} onClick={
                   (symbol.functions ? handleClassSymbolClick : handleFunctionSymbolClick).bind(null, symbol)
                 }>
                   <code>{symbol.name}</code>
@@ -311,7 +311,7 @@
         return <Layout title={helpText} showRestartButton showPickNewSymbolButton>
           <Nav bsStyle="pills" stacked style={{ marginBottom: 30 }}>
             {props.selectedFunction.classes.slice().sort((a, b) => a.name.length - b.name.length).map((symbol) =>
-              <NavItem key={symbol.address} onClick={
+              <NavItem key={symbol.id} onClick={
                 handleClassSymbolClick.bind(null, symbol)
               }>
                 <code>{symbol.name}</code>
@@ -321,69 +321,100 @@
         </Layout>;
       };
 
-      // TODO: Need to handle MI.
-      const formatVTable = (selectedClass) => {
+      function shouldSkipWindowsFunction(classInfo, vtableIndex, functionIndex, functionInfo) {
+        return (
+          functionInfo.name.indexOf('::~') !== -1
+        ) ? (
+          functionIndex > 0 &&
+          functionInfo.name === classInfo.vtables[vtableIndex].functions[functionIndex - 1].name
+        ) : (
+          classInfo.vtables.find((d, n) => (
+            n > vtableIndex &&
+            d.functions.find((d) => (
+              d.isThunk &&
+              functionInfo.name === d.name
+            ))
+          ))
+        );
+      }
+
+      function formatVTable(classInfo) {
         var out = [];
 
-        var linuxIndex = 0;
+        var vtableIndex = 0;
+        var vtableInfo = classInfo.vtables[vtableIndex];
+
         var windowsIndex = 0;
+        for (var linuxIndex = 0; linuxIndex < vtableInfo.functions.length; ++linuxIndex) {
+          var functionInfo = vtableInfo.functions[linuxIndex];
 
-        var overloadCount = 1;
-        var lastSearchKey = null;
+          var displayWindowsIndex = windowsIndex;
+          if (shouldSkipWindowsFunction(classInfo, vtableIndex, linuxIndex, functionInfo)) {
+            displayWindowsIndex = null;
+          } else {
+            if (functionInfo.symbol) {
+              var previousOverloads = 0;
+              var remainingOverloads = 0;
 
-        for (linuxIndex = 0; linuxIndex < selectedClass.functions.length; ++windowsIndex, ++linuxIndex) {
-          var func = selectedClass.functions[linuxIndex];
+              while ((linuxIndex - (1 + previousOverloads)) >= 0) {
+                var previousFunctionIndex = linuxIndex - (1 + previousOverloads);
+                var previousFunctionInfo = vtableInfo.functions[previousFunctionIndex];
+
+                if (!functionInfo.symbol || shouldSkipWindowsFunction(classInfo, vtableIndex, previousFunctionIndex, previousFunctionInfo)) {
+                  break;
+                }
+
+                if (functionInfo.shortName !== previousFunctionInfo.shortName) {
+                  break;
+                }
+
+                previousOverloads++;
+              }
+
+              while ((linuxIndex + 1 + remainingOverloads) < vtableInfo.functions.length) {
+                var nextFunctionIndex = linuxIndex + 1 + remainingOverloads;
+                var nextFunctionInfo = vtableInfo.functions[nextFunctionIndex];
+
+                if (!functionInfo.symbol || shouldSkipWindowsFunction(classInfo, vtableIndex, nextFunctionIndex, nextFunctionInfo)) {
+                  break;
+                }
+
+                if (functionInfo.shortName !== nextFunctionInfo.shortName) {
+                  break;
+                }
+
+                remainingOverloads++;
+              }
+
+              displayWindowsIndex -= previousOverloads;
+              displayWindowsIndex += remainingOverloads;
+            }
+
+            windowsIndex++;
+          }
 
           out.push({
-            address: func.address,
-            name: func.name,
+            id: functionInfo.id,
+            name: functionInfo.name,
             linuxIndex: linuxIndex,
-            windowsIndex: undefined,
+            windowsIndex: displayWindowsIndex,
           });
-
-          if (func.searchKey && func.searchKey === lastSearchKey) {
-            // TODO: Avoid the test every iteration?
-            if (func.searchKey.indexOf('::~') !== -1) {
-              windowsIndex--;
-            } else {
-              overloadCount++;
-            }
-          } else {
-            // TODO: This mess can probably be simplified when more awake.
-            if (overloadCount > 1) {
-              for (var j = 1; j <= overloadCount; ++j) {
-                out[linuxIndex - j].windowsIndex = (windowsIndex - (overloadCount - j) - 1);
-              }
-            }
-
-            overloadCount = 1;
-            out[linuxIndex].windowsIndex = windowsIndex;
-          }
-
-          lastSearchKey = func.searchKey;
-        }
-
-        // TODO: Need to construct a test class with overloads at the end to test this.
-        if (overloadCount > 1) {
-          for (var j = 1; j <= overloadCount; ++j) {
-            out[linuxIndex - j].windowsIndex = (windowsIndex - (overloadCount - j) - 1);
-          }
         }
 
         return out;
       }
 
-      const multipleInheritanceWarning =
+      const windowsOffsetWarning =
         <Alert bsStyle="warning">
-          <strong>Some Indexes May Be Incorrect</strong><br/>
-          This class uses Multiple Inheritance, which is not currently accounted for by this tool.
+          <strong>Some Windows Indexes May Be Incorrect</strong><br/>
+          This class uses C++ features which can not be accounted for by this tool.
         </Alert>;
 
       const PrintVTable = (props) => {
         var helpText = <span><Icon type="beer" /> You made it!</span>;
         return <Layout title={helpText} showRestartButton showPickNewSymbolButton>
           <div style={{ marginBottom: 30 }}>
-            {props.selectedClass.isMultipleInheritance && multipleInheritanceWarning}
+            {(props.selectedClass.hasMissingFunctions || props.selectedClass.vtables.length > 1) && windowsOffsetWarning}
             <Table hover>
               <thead>
                 <tr>
@@ -394,7 +425,7 @@
               </thead>
               <tbody>
                 {formatVTable(props.selectedClass).map((func) =>
-                  <tr key={func.address} className={(props.selectedFunction && props.selectedFunction.address === func.address) ? 'info' : ''}>
+                  <tr key={func.id} id={(props.selectedFunction && props.selectedFunction.id === func.id) && 'selected-function'} className={(props.selectedFunction && props.selectedFunction.id === func.id) ? 'info' : ''}>
                     <th className="text-right">{func.linuxIndex}</th>
                     <th className="text-right">{func.windowsIndex}</th>
                     <td className="text-left"><code>{func.name}</code></td>
