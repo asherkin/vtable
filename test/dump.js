@@ -116,6 +116,20 @@ function getFunctionName(demangledName, withNamespace) {
   return functionName;
 }
 
+var loaded = 0;
+var total = 0;
+var lastProgressUpdate = 0;
+function sendProgressUpdate(force) {
+  var now = Date.now();
+  if (!force && (now - lastProgressUpdate) < 50) {
+    return;
+  }
+
+  //self.postMessage({ loaded: loaded, total: total });
+  //console.log(loaded, total);
+  lastProgressUpdate = now;
+}
+
 function hex32(n) {
   return (n === 0) ? '00000000' : ('0000000' + ((n|0)+4294967296).toString(16)).substr(-8);
 }
@@ -163,22 +177,8 @@ fs.readFile(inputFile, function(err, data) {
   console.log("address size: " + programInfo.addressSize);
   console.log("symbols: " + programInfo.symbols.size());
 
-  var pureVirtualFunction = {
-    id: null,
-    name: null,
-    symbol: null,
-    searchKey: null,
-    classes: [],
-  };
-
-  var out = {
-    classes: [],
-    functions: [],
-  };
-
   var listOfVirtualClasses = [];
   var addressToSymbolMap = {};
-  var addressToFunctionMap = {};
 
   for (var i = 0; i < programInfo.symbols.size(); ++i) {
     var symbol = programInfo.symbols.get(i);
@@ -194,13 +194,34 @@ fs.readFile(inputFile, function(err, data) {
     addressToSymbolMap[key(symbol.address)] = symbol;
   }
 
+  console.log("virtual classes: " + listOfVirtualClasses.length);
+
+  var pureVirtualFunction = {
+    id: null,
+    name: null,
+    symbol: null,
+    searchKey: null,
+    classes: [],
+  };
+
+  var out = {
+    classes: [],
+    functions: [],
+  };
+
+  var addressToFunctionMap = {};
+
+  total += listOfVirtualClasses.length;
   for (var classIndex = 0; classIndex < listOfVirtualClasses.length; ++classIndex) {
+    loaded += 1;
+
     var symbol = listOfVirtualClasses[classIndex];
     var name = demangleSymbol(symbol.name).substr(11);
 
     var data = getRodata(programInfo, symbol.address, symbol.size);
     if (!data) {
       //console.log('VTable for ' + name + ' is outside .rodata');
+      sendProgressUpdate(false);
       continue;
     }
 
@@ -214,7 +235,10 @@ fs.readFile(inputFile, function(err, data) {
 
     var currentVtable;
     var dataView = new Uint32Array(data.buffer, data.byteOffset, data.byteLength / Uint32Array.BYTES_PER_ELEMENT);
+    total += dataView.length;
     for (var functionIndex = 0; functionIndex < dataView.length; ++functionIndex) {
+      loaded += 1;
+
       var functionAddress = {
         high: 0,
         low: dataView[functionIndex],
@@ -223,6 +247,7 @@ fs.readFile(inputFile, function(err, data) {
 
       if (programInfo.addressSize > Uint32Array.BYTES_PER_ELEMENT) {
         functionAddress.high = dataView[++functionIndex];
+        loaded += 1;
       }
 
       var functionSymbol = addressToSymbolMap[key(functionAddress)];
@@ -237,7 +262,11 @@ fs.readFile(inputFile, function(err, data) {
 
         // Skip the RTTI pointer and thisptr adjuster,
         // We'll need to do more work here for virtual bases.
-        functionIndex += (programInfo.addressSize / Uint32Array.BYTES_PER_ELEMENT);
+        var skip = programInfo.addressSize / Uint32Array.BYTES_PER_ELEMENT;
+        functionIndex += skip;
+        loaded += skip;
+
+        sendProgressUpdate(false);
         continue;
       }
 
@@ -245,6 +274,8 @@ fs.readFile(inputFile, function(err, data) {
       if (!functionSymbol || functionSymbol === '__cxa_deleted_virtual' || functionSymbol === '__cxa_pure_virtual') {
         classInfo.hasMissingFunctions = true;
         currentVtable.push(pureVirtualFunction);
+
+        sendProgressUpdate(false);
         continue;
       }
 
@@ -268,10 +299,19 @@ fs.readFile(inputFile, function(err, data) {
 
       functionInfo.classes.push(classInfo);
       currentVtable.push(functionInfo);
+
+      sendProgressUpdate(false);
     }
 
     out.classes.push(classInfo);
+
+    sendProgressUpdate(false);
   }
+
+  sendProgressUpdate(true);
+  //self.postMessage(out);
+
+  return;
 
   for (var classIndex = 0; classIndex < out.classes.length; ++classIndex) {
     var classInfo = out.classes[classIndex];
