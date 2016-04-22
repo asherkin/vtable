@@ -297,7 +297,7 @@
             <Nav bsStyle="pills" stacked style={{ marginBottom: 15 }}>
               {props.searchResults.map((symbol) =>
                 <NavItem key={symbol.id} onClick={
-                  (symbol.functions ? handleClassSymbolClick : handleFunctionSymbolClick).bind(null, symbol)
+                  (symbol.vtables ? handleClassSymbolClick : handleFunctionSymbolClick).bind(null, symbol)
                 }>
                   <code>{symbol.name}</code>
                 </NavItem>
