@@ -11,8 +11,8 @@
       code { background-color: transparent; }
       .steam-game-button-controls { opacity: 0; transition: opacity 0.2s; }
       .steam-game-button-controls:hover { opacity: 1; }
-      tr>:first-child { border-top-left-radius: 5px; border-bottom-left-radius: 5px; }
-      tr>:last-child { border-top-right-radius: 5px; border-bottom-right-radius: 5px; }
+      /*tr>:first-child { border-top-left-radius: 5px; border-bottom-left-radius: 5px; }
+      tr>:last-child { border-top-right-radius: 5px; border-bottom-right-radius: 5px; }*/
       .table-borderless>tbody>tr>td, .table-borderless>tbody>tr>th, .table-borderless>tfoot>tr>td, .table-borderless>tfoot>tr>th, .table-borderless>thead>tr>td, .table-borderless>thead>tr>th { border-top: none; }
     </style>
   </head>
@@ -150,7 +150,7 @@
       }
 
       const restartButtonTooltip =
-        <Tooltip>Start Again</Tooltip>;
+        <Tooltip id="tooltip-restart">Start Again</Tooltip>;
 
       const restartButton =
         <span style={{ position: 'absolute', marginLeft: -36 }}>
@@ -169,7 +169,7 @@
       }
 
       const pickNewSymbolButtonTooltip =
-        <Tooltip>Pick a Different Symbol</Tooltip>;
+        <Tooltip id="tooltip-picknew">Pick a Different Symbol</Tooltip>;
 
       const pickNewSymbolButton =
         <span style={{ position: 'absolute', marginLeft: -60 }}>
@@ -412,26 +412,27 @@
 
       const PrintVTable = (props) => {
         var helpText = <span><Icon type="beer" /> You made it!</span>;
+        var tableHeader = <tr>
+          <th className="text-right">L</th>
+          <th className="text-right">W</th>
+          <th className="text-left">Function</th>
+        </tr>;
+        var counter = 0;
         return <Layout title={helpText} showRestartButton showPickNewSymbolButton>
           <div style={{ marginBottom: 30 }}>
             {(props.selectedClass.hasMissingFunctions || props.selectedClass.vtables.length > 1) && windowsOffsetWarning}
             <Table hover>
-              <thead>
-                <tr>
-                  <th className="text-right">L</th>
-                  <th className="text-right">W</th>
-                  <th className="text-left">Function</th>
-                </tr>
-              </thead>
-              <tbody>
-                {formatVTable(props.selectedClass).map((func) =>
-                  <tr key={func.id} id={(props.selectedFunction && props.selectedFunction.id === func.id) && 'selected-function'} className={(props.selectedFunction && props.selectedFunction.id === func.id) ? 'info' : ''}>
+              <thead>{tableHeader}</thead>
+              {formatVTable(props.selectedClass).map((func) =>
+                <tbody key={func.id}>
+                  {(counter++ % 20) === 0 && counter !== 1 && tableHeader}
+                  <tr key="info" ref={(row) => row && props.selectedFunction && props.selectedFunction.id === func.id && (row.classList.add('info'), (row.scrollIntoViewIfNeeded ? row.scrollIntoViewIfNeeded(true) : row.scrollIntoView(true)))}>
                     <th className="text-right">{func.linuxIndex}</th>
                     <th className="text-right">{func.windowsIndex}</th>
                     <td className="text-left"><code>{func.name}</code></td>
                   </tr>
-                )}
-              </tbody>
+                </tbody>
+              )}
             </Table>
           </div>
         </Layout>;
