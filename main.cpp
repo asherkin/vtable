@@ -47,6 +47,7 @@ struct RodataChunk {
 };
 
 struct SymbolInfo {
+  unsigned int section;
   LargeNumber address;
   LargeNumber size;
   std::string name;
@@ -55,8 +56,12 @@ struct SymbolInfo {
 struct ProgramInfo {
   std::string error;
   int addressSize;
+  unsigned int rodataIndex;
   LargeNumber rodataStart;
   std::vector<RodataChunk> rodataChunks;
+  unsigned int relRodataIndex;
+  LargeNumber relRodataStart;
+  std::vector<RodataChunk> relRodataChunks;
   std::vector<SymbolInfo> symbols;
 };
 
@@ -110,10 +115,18 @@ ProgramInfo process(std::string image) {
     return programInfo;
   }
 
-  Elf64_Addr dataOffset;
-  Elf_Scn *dataScn = nullptr;
   Elf_Scn *symbolTableScn = nullptr;
+
+  size_t stringTableIndex = SHN_UNDEF;
   Elf_Scn *stringTableScn = nullptr;
+
+  size_t rodataIndex = SHN_UNDEF;
+  Elf64_Addr rodataOffset;
+  Elf_Scn *rodataScn = nullptr;
+
+  size_t relRodataIndex = SHN_UNDEF;
+  Elf64_Addr relRodataOffset;
+  Elf_Scn *relRodataScn = nullptr;
 
   for (size_t elfSectionIndex = 0; elfSectionIndex < numberOfSections; ++elfSectionIndex) {
     Elf_Scn *elfScn = elf_getscn(elf, elfSectionIndex);
@@ -137,41 +150,60 @@ ProgramInfo process(std::string image) {
     if (elfSectionHeader.sh_type == SHT_SYMTAB && strcmp(name, ".symtab") == 0) {
       symbolTableScn = elfScn;
     } else if (elfSectionHeader.sh_type == SHT_STRTAB && strcmp(name, ".strtab") == 0) {
+      stringTableIndex = elfSectionIndex;
       stringTableScn = elfScn;
     } else if (elfSectionHeader.sh_type == SHT_PROGBITS && strcmp(name, ".rodata") == 0) {
-      dataOffset = elfSectionHeader.sh_addr;
-      dataScn = elfScn;
+      rodataIndex = elfSectionIndex;
+      rodataOffset = elfSectionHeader.sh_addr;
+      rodataScn = elfScn;
+    } else if (elfSectionHeader.sh_type == SHT_PROGBITS && strcmp(name, ".data.rel.ro") == 0) {
+      relRodataIndex = elfSectionIndex;
+      relRodataOffset = elfSectionHeader.sh_addr;
+      relRodataScn = elfScn;
     }
 
-    if (dataScn && symbolTableScn && stringTableScn) {
+    if (symbolTableScn && stringTableScn && rodataScn && relRodataScn) {
       break;
     }
   }
 
-  if (!dataScn || !symbolTableScn || !stringTableScn) {
+  if (!symbolTableScn || !stringTableScn || !rodataScn) {
     programInfo.error = "Failed to find all required ELF sections.";
     return programInfo;
   }
 
-  size_t symbolNameStringTableIndex = elf_ndxscn(stringTableScn);
-  if (symbolNameStringTableIndex == SHN_UNDEF) {
-    programInfo.error = "elf_ndxscn failed. (" + std::string(elf_errmsg(-1)) + ")";
-    return programInfo;
-  }
+  programInfo.rodataStart = rodataOffset;
+  programInfo.rodataIndex = rodataIndex;
 
-  programInfo.rodataStart = dataOffset;
-
-  Elf_Data *data = nullptr;
-  while ((data = elf_getdata(dataScn, data)) != nullptr) {
+  Elf_Data *rodata = nullptr;
+  while ((rodata = elf_getdata(rodataScn, rodata)) != nullptr) {
     RodataChunk rodataChunk;
-    rodataChunk.offset = data->d_off;
+    rodataChunk.offset = rodata->d_off;
 #ifdef EMSCRIPTEN
     // memory_view doesn't do a copy, but we want JS to manage this once embind is done.
-    rodataChunk.data = emscripten::val(emscripten::memory_view<unsigned char>(data->d_size, (unsigned char *)data->d_buf)).call<emscripten::val>("slice");
+    rodataChunk.data = emscripten::val(emscripten::memory_view<unsigned char>(rodata->d_size, (unsigned char *)rodata->d_buf)).call<emscripten::val>("slice");
 #else
-    rodataChunk.data = std::move(std::vector<unsigned char>((char *)data->d_buf, (char *)data->d_buf + data->d_size));
+    rodataChunk.data = std::move(std::vector<unsigned char>((char *)rodata->d_buf, (char *)rodata->d_buf + rodata->d_size));
 #endif
     programInfo.rodataChunks.push_back(std::move(rodataChunk));
+  }
+
+  if (relRodataScn) {
+    programInfo.relRodataStart = relRodataOffset;
+    programInfo.relRodataIndex = relRodataIndex;
+
+    Elf_Data *relRodata = nullptr;
+    while ((relRodata = elf_getdata(relRodataScn, relRodata)) != nullptr) {
+      RodataChunk relRodataChunk;
+      relRodataChunk.offset = relRodata->d_off;
+  #ifdef EMSCRIPTEN
+      // memory_view doesn't do a copy, but we want JS to manage this once embind is done.
+      relRodataChunk.data = emscripten::val(emscripten::memory_view<unsigned char>(relRodata->d_size, (unsigned char *)relRodata->d_buf)).call<emscripten::val>("slice");
+  #else
+      relRodataChunk.data = std::move(std::vector<unsigned char>((char *)relRodata->d_buf, (char *)relRodata->d_buf + relRodata->d_size));
+  #endif
+      programInfo.relRodataChunks.push_back(std::move(relRodataChunk));
+    }
   }
 
   Elf_Data *symbolData = nullptr;
@@ -179,13 +211,14 @@ ProgramInfo process(std::string image) {
     size_t symbolIndex = 0;
     GElf_Sym symbol;
     while (gelf_getsym(symbolData, symbolIndex++, &symbol) == &symbol) {
-      const char *name = elf_strptr(elf, symbolNameStringTableIndex, symbol.st_name);
+      const char *name = elf_strptr(elf, stringTableIndex, symbol.st_name);
       if (!name) {
         std::cerr << "Failed to symbol name for " + std::to_string(symbolIndex) + ". (" + std::string(elf_errmsg(-1)) + ")" << std::endl;
         continue;
       }
 
       SymbolInfo symbolInfo;
+      symbolInfo.section = symbol.st_shndx;
       symbolInfo.address = symbol.st_value;
       symbolInfo.size = symbol.st_size;
       symbolInfo.name = name;
@@ -208,7 +241,11 @@ EMSCRIPTEN_BINDINGS(vtable) {
     .field("error", &ProgramInfo::error)
     .field("addressSize", &ProgramInfo::addressSize)
     .field("rodataStart", &ProgramInfo::rodataStart)
+    .field("rodataIndex", &ProgramInfo::rodataIndex)
     .field("rodataChunks", &ProgramInfo::rodataChunks)
+    .field("relRodataStart", &ProgramInfo::relRodataStart)
+    .field("relRodataIndex", &ProgramInfo::relRodataIndex)
+    .field("relRodataChunks", &ProgramInfo::relRodataChunks)
     .field("symbols", &ProgramInfo::symbols);
 
   emscripten::value_object<RodataChunk>("RodataChunk")
@@ -216,6 +253,7 @@ EMSCRIPTEN_BINDINGS(vtable) {
     .field("data", &RodataChunk::data);
 
   emscripten::value_object<SymbolInfo>("SymbolInfo")
+    .field("section", &SymbolInfo::section)
     .field("address", &SymbolInfo::address)
     .field("size", &SymbolInfo::size)
     .field("name", &SymbolInfo::name);

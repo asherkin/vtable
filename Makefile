@@ -32,7 +32,7 @@ distclean: clean
 	rm -rf build-libelf libelf-0.8.13 libelf-0.8.13.tar.gz engine_srv.so
 
 test: test.js vtable.js engine_srv.so
-	node test.js
+	node test.js engine_srv.so
 
 engine_srv.so:
 	curl -o engine_srv.so 'https://fennec.limetech.org/vtable-test/engine_srv.so'
