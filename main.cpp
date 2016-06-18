@@ -2,6 +2,8 @@
 #include "libelf.h"
 #include "gelf.h"
 
+#define R_386_32 1
+
 #ifdef EMSCRIPTEN
 #include <emscripten/val.h>
 #include <emscripten/bind.h>
@@ -53,6 +55,11 @@ struct SymbolInfo {
   std::string name;
 };
 
+struct RelocationInfo {
+  LargeNumber address;
+  LargeNumber target;
+};
+
 struct ProgramInfo {
   std::string error;
   int addressSize;
@@ -63,6 +70,7 @@ struct ProgramInfo {
   LargeNumber relRodataStart;
   std::vector<RodataChunk> relRodataChunks;
   std::vector<SymbolInfo> symbols;
+  std::vector<RelocationInfo> relocations;
 };
 
 ProgramInfo process(std::string image) {
@@ -115,6 +123,10 @@ ProgramInfo process(std::string image) {
     return programInfo;
   }
 
+  Elf_Scn *relocationTableScn = nullptr;
+
+  Elf_Scn *dynamicSymbolTableScn = nullptr;
+
   Elf_Scn *symbolTableScn = nullptr;
 
   size_t stringTableIndex = SHN_UNDEF;
@@ -147,7 +159,11 @@ ProgramInfo process(std::string image) {
       continue;
     }
 
-    if (elfSectionHeader.sh_type == SHT_SYMTAB && strcmp(name, ".symtab") == 0) {
+    if (elfSectionHeader.sh_type == SHT_REL && strcmp(name, ".rel.dyn") == 0) {
+      relocationTableScn = elfScn;
+    } else if (elfSectionHeader.sh_type == SHT_DYNSYM && strcmp(name, ".dynsym") == 0) {
+      dynamicSymbolTableScn = elfScn;
+    } else if (elfSectionHeader.sh_type == SHT_SYMTAB && strcmp(name, ".symtab") == 0) {
       symbolTableScn = elfScn;
     } else if (elfSectionHeader.sh_type == SHT_STRTAB && strcmp(name, ".strtab") == 0) {
       stringTableIndex = elfSectionIndex;
@@ -162,7 +178,7 @@ ProgramInfo process(std::string image) {
       relRodataScn = elfScn;
     }
 
-    if (symbolTableScn && stringTableScn && rodataScn && relRodataScn) {
+    if (relocationTableScn && dynamicSymbolTableScn && symbolTableScn && stringTableScn && rodataScn && relRodataScn) {
       break;
     }
   }
@@ -174,6 +190,36 @@ ProgramInfo process(std::string image) {
 
   programInfo.rodataStart = rodataOffset;
   programInfo.rodataIndex = rodataIndex;
+
+  if (relocationTableScn && dynamicSymbolTableScn) {
+    Elf_Data *relocationData = nullptr;
+    while ((relocationData = elf_getdata(relocationTableScn, relocationData)) != nullptr) {
+      size_t relocationIndex = 0;
+      GElf_Rel relocation;
+      while (gelf_getrel(relocationData, relocationIndex++, &relocation) == &relocation) {
+        size_t type = GELF_R_TYPE(relocation.r_info);
+        if (type != R_386_32) {
+          continue;
+        }
+
+        Elf_Data *symbolData = nullptr;
+        while ((symbolData = elf_getdata(dynamicSymbolTableScn, symbolData)) != nullptr) {
+          GElf_Sym symbol;
+          size_t symbolIndex = GELF_R_SYM(relocation.r_info);
+          if (gelf_getsym(symbolData, symbolIndex, &symbol) != &symbol) {
+            continue;
+          }
+
+          RelocationInfo relocationInfo;
+          relocationInfo.address = relocation.r_offset;
+          relocationInfo.target = symbol.st_value;
+          programInfo.relocations.push_back(std::move(relocationInfo));
+
+          break;
+        }
+      }
+    }
+  }
 
   Elf_Data *rodata = nullptr;
   while ((rodata = elf_getdata(rodataScn, rodata)) != nullptr) {
@@ -246,7 +292,8 @@ EMSCRIPTEN_BINDINGS(vtable) {
     .field("relRodataStart", &ProgramInfo::relRodataStart)
     .field("relRodataIndex", &ProgramInfo::relRodataIndex)
     .field("relRodataChunks", &ProgramInfo::relRodataChunks)
-    .field("symbols", &ProgramInfo::symbols);
+    .field("symbols", &ProgramInfo::symbols)
+    .field("relocations", &ProgramInfo::relocations);
 
   emscripten::value_object<RodataChunk>("RodataChunk")
     .field("offset", &RodataChunk::offset)
@@ -258,8 +305,13 @@ EMSCRIPTEN_BINDINGS(vtable) {
     .field("size", &SymbolInfo::size)
     .field("name", &SymbolInfo::name);
 
+  emscripten::value_object<RelocationInfo>("RelocationInfo")
+    .field("address", &RelocationInfo::address)
+    .field("target", &RelocationInfo::target);
+
   emscripten::register_vector<RodataChunk>("VectorRodataChunk");
   emscripten::register_vector<SymbolInfo>("VectorSymbolInfo");
+  emscripten::register_vector<RelocationInfo>("VectorRelocationInfo");
 
   emscripten::function("process", &process);
 }

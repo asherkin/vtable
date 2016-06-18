@@ -134,6 +134,16 @@ self.onmessage = function(event) {
 
   console.info("virtual classes: " + listOfVirtualClasses.length);
 
+  console.info("relocations: " + programInfo.relocations.size());
+
+  var relocationMap = {};
+
+  for (var i = 0; i < programInfo.relocations.size(); ++i) {
+    var relocation = programInfo.relocations.get(i);
+
+    relocationMap[key(relocation.address)] = relocation.target;
+  }
+
   var pureVirtualFunction = {
     id: null,
     name: '(pure virtual function)',
@@ -190,6 +200,21 @@ self.onmessage = function(event) {
       if (programInfo.addressSize > Uint32Array.BYTES_PER_ELEMENT) {
         functionAddress.high = dataView[++functionIndex];
         loaded += 1;
+      }
+
+      if (programInfo.addressSize === Uint32Array.BYTES_PER_ELEMENT) {
+        var localAddress = {
+          high: 0,
+          low: symbol.address.low + (functionIndex * Uint32Array.BYTES_PER_ELEMENT),
+          unsigned: true,
+        };
+
+        var targetAddress = relocationMap[key(localAddress)];
+        if (targetAddress) {
+          functionAddress = targetAddress;
+        }
+      } else {
+        console.warn('Relocations not supported for 64-bit bins');
       }
 
       var functionSymbol = addressToSymbolMap[key(functionAddress)];
