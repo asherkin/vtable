@@ -40,7 +40,9 @@ function getDataForSymbol(programInfo, symbol) {
   var dataStart;
   var dataChunks;
 
-  if (symbol.section === programInfo.rodataIndex) {
+  if (symbol.section === 0) {
+    return null;
+  } else if (symbol.section === programInfo.rodataIndex) {
     dataStart = programInfo.rodataStart;
     dataChunks = programInfo.rodataChunks;
   } else if (symbol.section === programInfo.relRodataIndex) {
