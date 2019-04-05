@@ -17,8 +17,9 @@ function demangleSymbol(func) {
     if (typeof func !== 'string') {
       throw new Error('input not a string');
     }
-    var buf = Module['_malloc'](func.length + 1);
-    Module['writeStringToMemory'](func, buf);
+    var len = Module['lengthBytesUTF8'](func);
+    var buf = Module['_malloc'](len + 1);
+    Module['stringToUTF8'](func, buf, len + 1);
     var status = Module['_malloc'](4);
     var ret = Module['___cxa_demangle'](buf, 0, 0, status);
     var intStatus = Module['getValue'](status, 'i32');
@@ -27,7 +28,7 @@ function demangleSymbol(func) {
         if (!ret) {
           throw new Error('___cxa_demangle returned NULL');
         }
-        return Module['Pointer_stringify'](ret);
+        return Module['UTF8ToString'](ret);
       case -1:
         throw new Error('a memory allocation failiure occurred');
       case -2:
