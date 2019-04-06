@@ -188,6 +188,9 @@ self.onmessage = function(event) {
       hasMissingFunctions: false,
     };
 
+    var classIndex = out.classes.length;
+    out.classes.push(classInfo);
+
     var currentVtable;
     var dataView = new Uint32Array(data.buffer, data.byteOffset, data.byteLength / Uint32Array.BYTES_PER_ELEMENT);
     total += dataView.length;
@@ -285,13 +288,11 @@ self.onmessage = function(event) {
         addressToFunctionMap[key(functionAddress)] = functionInfo;
       }
 
-      functionInfo.classes.push(classInfo);
+      functionInfo.classes.push(classIndex);
       currentVtable.push(functionInfo);
 
       sendProgressUpdate(false);
     }
-
-    out.classes.push(classInfo);
 
     sendProgressUpdate(false);
   }

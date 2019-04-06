@@ -4,5 +4,6 @@ build-libelf/
 build-libelf-native/
 libelf-0.8.13.tar.gz
 libelf-0.8.13/
+vtable.wasm.pre
 vtable.js
 vtable

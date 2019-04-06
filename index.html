@@ -30,10 +30,19 @@
 
       var worker = new Worker('worker.js');
       worker.onmessage = (event) => {
-        if (event.data.loaded || event.data.total)
+        if (event.data.loaded || event.data.total) {
           stateManager.setState({ binaryProcessingProgress: event.data });
-        else
+        } else {
+          for (var i = 0; i < event.data.functions.length; ++i) {
+            var fun = event.data.functions[i];
+            for (var j = 0; j < fun.classes.length; ++j) {
+              var classIndex = fun.classes[j];
+              fun.classes[j] = event.data.classes[classIndex];
+            }
+          }
+
           stateManager.setState({ programInfo: event.data });
+        }
       };
 
       window.ondragenter = (event) => {
