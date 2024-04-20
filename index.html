@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VTable Dumper</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.6/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.5.0/css/font-awesome.min.css">
+    <style type="text/css">
+      code { background-color: transparent; }
+      .steam-game-button-controls { opacity: 0; transition: opacity 0.2s; }
+      .steam-game-button-controls:hover { opacity: 1; }
+      /*tr>:first-child { border-top-left-radius: 5px; border-bottom-left-radius: 5px; }
+      tr>:last-child { border-top-right-radius: 5px; border-bottom-right-radius: 5px; }*/
+      .table-borderless>tbody>tr>td, .table-borderless>tbody>tr>th, .table-borderless>tfoot>tr>td, .table-borderless>tfoot>tr>th, .table-borderless>thead>tr>td, .table-borderless>thead>tr>th { border-top: none; }
+      .table>tbody+tbody { border-top: none; }
+    </style>
+  </head>
+  <body>
+    <div id="content" class="container"></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/0.14.7/react.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/0.14.7/react-dom.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-bootstrap/0.28.3/react-bootstrap.js"></script>
+    <script type="text/babel">
+      const { Row, Col, Image, ButtonToolbar, Button, ProgressBar, Tooltip, OverlayTrigger, Input, Nav, NavItem, Table, Alert } = ReactBootstrap;
+
+      var stateManager = null;
+
+      var worker = new Worker('worker.js');
+      worker.onmessage = (event) => {
+        if (event.data.loaded || event.data.total) {
+          stateManager.setState({ binaryProcessingProgress: event.data });
+        } else {
+          for (var i = 0; i < event.data.functions.length; ++i) {
+            var fun = event.data.functions[i];
+            for (var j = 0; j < fun.classes.length; ++j) {
+              var classIndex = fun.classes[j];
+              fun.classes[j] = event.data.classes[classIndex];
+            }
+          }
+
+          stateManager.setState({ programInfo: event.data });
+        }
+      };
+
+      window.ondragenter = (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+      };
+
+      window.ondragover = (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+      };
+
+      window.ondrop = (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+
+        if (!event.dataTransfer.files || event.dataTransfer.files.length < 1) {
+          return;
+        }
+
+        var file = event.dataTransfer.files[0];
+
+        // TODO: This is a hack, find an alternative.
+        var gameList = stateManager.state.gameList;
+        stateManager.state = { gameList: gameList, selectedBinary: file.name, binaryDownloadProgress: { loaded: 0, total: 0 } };
+        stateManager.forceUpdate();
+
+        var fileReader = new FileReader();
+
+        fileReader.addEventListener('progress', (event) => {
+          stateManager.setState({ binaryDownloadProgress: { loaded: event.loaded, total: event.total } });
+        });
+
+        fileReader.addEventListener('load', (event) => {
+          stateManager.setState({ binary: event.target.result, binaryProcessingProgress: { loaded: 0, total: 0 } });
+
+          worker.postMessage(event.target.result, [event.target.result]);
+        });
+
+        fileReader.readAsArrayBuffer(file);
+      };
+
+      const Icon = (props) =>
+        <i
+          className={'fa fa-'+props.type+(props.spin ? ' fa-spin' : '')}
+          style={{
+            fontSize: (props.size || undefined),
+            verticalAlign: (props.middle ? 'middle' : undefined),
+          }}
+        />;
+
+      const FooterLink = (props) =>
+        <a href={props.href} target="_blank" className="text-muted">{props.children}</a>
+
+      const handleSteamGameButtonClick = (game, binary, event) => {
+        stateManager.setState({ selectedBinary: (game+' '+binary.type+' binary'), binaryDownloadProgress: { loaded: 0, total: 0 } });
+
+        var xhr = new XMLHttpRequest();
+
+        xhr.addEventListener('progress', (event) => {
+          stateManager.setState({ binaryDownloadProgress: { loaded: event.loaded, total: event.total } });
+        });
+
+        xhr.addEventListener('load', (event) => {
+          stateManager.setState({ binary: xhr.response, binaryProcessingProgress: { loaded: 0, total: 0 } });
+
+          worker.postMessage(xhr.response, [xhr.response]);
+        });
+
+        xhr.open('GET', stateManager.state.gameList.base + binary.path);
+        xhr.responseType = 'arraybuffer';
+
+        xhr.send();
+      }
+
+      const SteamGameButton = (props) =>
+        <Col xs={6} sm={4} className="text-center" style={{ position: 'relative' }}>
+          <Image
+            rounded responsive
+            style={{ marginTop: 0, marginLeft: 'auto', marginBottom: 30, marginRight: 'auto' }}
+            src={'https://steamcdn-a.akamaihd.net/steam/apps/' + props.game.appid + '/header.jpg'}
+            alt={props.game.name}
+          />
+          <div className="steam-game-button-controls" style={{
+            position: 'absolute', top: 0, left: 15, bottom: 30, right: 15,
+            backgroundColor: 'rgba(255, 255, 255, 0.85)',
+            border: '1px solid #ccc', borderRadius: 5,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <ButtonToolbar>
+              {props.game.bins.map((binary) =>
+                <Button
+                  key={binary.type} bsSize="large"
+                  onClick={handleSteamGameButtonClick.bind(null, props.game.name, binary)}
+                >
+                  <Icon type={
+                    (binary.type === 'Engine') ? 'tachometer' :
+                    (binary.type === 'Server') ? 'server' :
+                    'question-circle'
+                  } size="2em" /><br/>{binary.type}
+                </Button>
+              )}
+            </ButtonToolbar>
+          </div>
+        </Col>
+
+      const startHelpText =
+        <span>Pick a <Icon type="steam" middle /> game or drop a <code>.so</code> file to start.</span>;
+
+      const handleRestartButtonClick = (event) => {
+        // TODO: This is a hack, find an alternative (some kind of state history?)
+        var gameList = stateManager.state.gameList;
+        stateManager.state = { gameList: gameList };
+        stateManager.forceUpdate();
+      }
+
+      const restartButtonTooltip =
+        <Tooltip id="tooltip-restart">Start Again</Tooltip>;
+
+      const restartButton =
+        <span style={{ position: 'absolute', marginLeft: -36 }}>
+          <OverlayTrigger placement="bottom" overlay={restartButtonTooltip}>
+              <Button bsSize="xsmall" onClick={handleRestartButtonClick}>
+                <Icon type="undo" />
+              </Button>
+          </OverlayTrigger>
+        </span>;
+
+      const handlePickNewSymbolButtonClick = (event) => {
+        stateManager.setState({
+          selectedClass: null,
+          selectedFunction: null,
+        });
+      }
+
+      const pickNewSymbolButtonTooltip =
+        <Tooltip id="tooltip-picknew">Pick a Different Symbol</Tooltip>;
+
+      const pickNewSymbolButton =
+        <span style={{ position: 'absolute', marginLeft: -60 }}>
+          <OverlayTrigger placement="bottom" overlay={pickNewSymbolButtonTooltip}>
+              <Button bsSize="xsmall" onClick={handlePickNewSymbolButtonClick}>
+                <Icon type="arrow-left" />
+              </Button>
+          </OverlayTrigger>
+        </span>;
+
+      const multiIconTooltip =
+        <Tooltip id="tooltip-multi">This function has been de&#8209;duplicated by the compiler, the name may be incorrect</Tooltip>;
+
+      const multiIcon =
+        <span style={{ position: 'absolute', marginLeft: '0.25em' }}>
+          <OverlayTrigger placement="right" overlay={multiIconTooltip}>
+            <div>
+              <Icon type="copy" />
+            </div>
+          </OverlayTrigger>
+        </span>;
+
+      const Layout = (props) =>
+        <div className="text-center">
+          <div className="page-header">
+            <h1>{props.showPickNewSymbolButton && pickNewSymbolButton}{props.showRestartButton && restartButton}VTable Dumper</h1>
+            <p className="lead">{props.title}</p>
+          </div>
+          <div className="page-header">
+            {props.children}
+          </div>
+          <div className="text-muted text-lowercase" style={{ marginBottom: 20 }}>
+            Made with <Icon type="heart" middle size="50%" /> by <FooterLink href="https://limetech.io">asherkin</FooterLink> <Icon type="circle" middle size="33%" /> Powered by <FooterLink href="http://emscripten.org">Emscripten</FooterLink> & <FooterLink href="http://www.mr511.de/software/english.html">libelf</FooterLink><br/>
+            <small><FooterLink href="https://github.com/asherkin/vtable">I am Free Software, Fork me on GitHub</FooterLink></small>
+          </div>
+        </div>;
+
+      const LoadingGameList = (props) =>
+        <Layout title={startHelpText}>
+          <div style={{ fontSize: 100, marginBottom: 30 }}>
+            <Icon type="circle-o-notch" spin />
+          </div>
+        </Layout>;
+
+      const PickAGame = (props) => {
+        return <Layout title={startHelpText}>
+          <Row>
+            {props.gameList.games.map((game) =>
+              <SteamGameButton key={game.appid} game={game} />
+            )}
+          </Row>
+        </Layout>;
+      };
+
+      const DownloadingBinary = (props) => {
+        var helpText = <span>Downloading <Icon type="cloud-download" /> {props.binary}...</span>;
+        return <Layout title={helpText}>
+          <ProgressBar style={{ marginBottom: 30, height: 46 }} now={props.loaded} max={props.total} striped active />
+        </Layout>;
+      };
+
+      const ProcessingBinary = (props) => {
+        var helpText = <span>Processing <Icon type="cogs" /> {props.binary}...</span>;
+        return <Layout title={helpText}>
+          <ProgressBar style={{ marginBottom: 30, height: 46 }} now={props.loaded} max={props.total} striped active />
+        </Layout>;
+      };
+
+      const handleSymbolSearchChange = (programInfo, event) => {
+        var lowercaseQuery = event.target.value.toLowerCase();
+
+        var queryResults = [];
+        if (lowercaseQuery.length > 0) {
+          const filterFunction = (value) => value.searchKey.indexOf(lowercaseQuery) !== -1;
+          const sortFunction = (a, b) => a.name.length - b.name.length;
+
+          queryResults = programInfo.classes
+            .filter(filterFunction)
+            .sort(sortFunction)
+            .slice(0, 10);
+
+          if (queryResults.length < 10) {
+            Array.prototype.push.apply(queryResults, programInfo.functions
+              .filter(filterFunction)
+              .sort(sortFunction)
+              .slice(0, 10 - queryResults.length));
+          }
+        }
+
+        stateManager.setState({
+          symbolQueryString: event.target.value,
+          symbolQueryResults: queryResults,
+        });
+      };
+
+      const handleClassSymbolClick = (selectedClass, event) => {
+        stateManager.setState({
+          selectedClass: selectedClass,
+        });
+      };
+
+      const handleFunctionSymbolClick = (selectedFunction, event) => {
+        var newState = {
+          selectedFunction: selectedFunction,
+        };
+
+        // If this function is only in one class, just select that one.
+        if (selectedFunction.classes.length === 1) {
+          newState.selectedClass = selectedFunction.classes[0];
+        }
+
+        stateManager.setState(newState);
+      };
+
+      const PickASymbol = (props) => {
+        var errorText = <span>Whoops, looks like there was a <Icon type="exclamation-triangle" /> problem.</span>;
+        var helpText = <span>What are you <Icon type="search" /> looking for today?</span>;
+        if (props.programInfo.error)
+          return <Layout title={errorText}>
+            <div style={{ fontSize: '2em', marginBottom: 30 }}>
+              {props.programInfo.error}<br/>
+              <Button bsStyle="primary" onClick={handleRestartButtonClick}>
+                <Icon type="undo" /> Try Again
+              </Button>
+            </div>
+          </Layout>;
+        else
+          return <Layout title={helpText} showRestartButton>
+            <Input
+              type="text"
+              bsSize="large"
+              className="text-center"
+              placeholder="Enter a class or function name ..."
+              onChange={handleSymbolSearchChange.bind(null, props.programInfo)}
+              value={props.searchQuery}
+              spellCheck="false"
+            />
+            <Nav bsStyle="pills" stacked style={{ marginBottom: 15 }}>
+              {props.searchResults.map((symbol) =>
+                <NavItem key={symbol.id} onClick={
+                  (symbol.vtables ? handleClassSymbolClick : handleFunctionSymbolClick).bind(null, symbol)
+                }>
+                  <code>{symbol.name}</code>
+                </NavItem>
+              )}
+            </Nav>
+          </Layout>;
+      };
+
+      const DisambiguateSymbol = (props) => {
+        var helpText = <span>Hmm, that function exists in <Icon type="code-fork" /> multiple classes.</span>;
+        return <Layout title={helpText} showRestartButton showPickNewSymbolButton>
+          <Nav bsStyle="pills" stacked style={{ marginBottom: 30 }}>
+            {props.selectedFunction.classes.slice().sort((a, b) => a.name.length - b.name.length).map((symbol) =>
+              <NavItem key={symbol.id} onClick={
+                handleClassSymbolClick.bind(null, symbol)
+              }>
+                <code>{symbol.name}</code>
+              </NavItem>
+            )}
+          </Nav>
+        </Layout>;
+      };
+
+      function shouldSkipWindowsFunction(classInfo, vtableIndex, functionIndex, functionInfo) {
+        return (
+          functionInfo.name.indexOf('::~') !== -1
+        ) ? (
+          functionIndex > 0 &&
+          functionInfo.name === classInfo.vtables[vtableIndex].functions[functionIndex - 1].name
+        ) : (
+          classInfo.vtables.find((d, n) => (
+            n > vtableIndex &&
+            d.functions.find((d) => (
+              d.isThunk &&
+              functionInfo.name === d.name
+            ))
+          ))
+        );
+      }
+
+      function formatVTable(classInfo) {
+        var out = [];
+
+        var vtableIndex = 0;
+        var vtableInfo = classInfo.vtables[vtableIndex];
+
+        var windowsIndex = 0;
+        for (var linuxIndex = 0; linuxIndex < vtableInfo.functions.length; ++linuxIndex) {
+          var functionInfo = vtableInfo.functions[linuxIndex];
+
+          var displayWindowsIndex = windowsIndex;
+          if (shouldSkipWindowsFunction(classInfo, vtableIndex, linuxIndex, functionInfo)) {
+            displayWindowsIndex = null;
+          } else {
+            if (functionInfo.symbol && !functionInfo.isMulti) {
+              var previousOverloads = 0;
+              var remainingOverloads = 0;
+
+              while ((linuxIndex - (1 + previousOverloads)) >= 0) {
+                var previousFunctionIndex = linuxIndex - (1 + previousOverloads);
+                var previousFunctionInfo = vtableInfo.functions[previousFunctionIndex];
+
+                if (!functionInfo.symbol || shouldSkipWindowsFunction(classInfo, vtableIndex, previousFunctionIndex, previousFunctionInfo)) {
+                  break;
+                }
+
+                if (functionInfo.shortName !== previousFunctionInfo.shortName) {
+                  break;
+                }
+
+                previousOverloads++;
+              }
+
+              while ((linuxIndex + 1 + remainingOverloads) < vtableInfo.functions.length) {
+                var nextFunctionIndex = linuxIndex + 1 + remainingOverloads;
+                var nextFunctionInfo = vtableInfo.functions[nextFunctionIndex];
+
+                if (!functionInfo.symbol || shouldSkipWindowsFunction(classInfo, vtableIndex, nextFunctionIndex, nextFunctionInfo)) {
+                  break;
+                }
+
+                if (functionInfo.shortName !== nextFunctionInfo.shortName) {
+                  break;
+                }
+
+                remainingOverloads++;
+              }
+
+              displayWindowsIndex -= previousOverloads;
+              displayWindowsIndex += remainingOverloads;
+            }
+
+            windowsIndex++;
+          }
+
+          out.push({
+            id: functionInfo.id,
+            name: functionInfo.name,
+            isMulti: functionInfo.isMulti,
+            linuxIndex: linuxIndex,
+            windowsIndex: displayWindowsIndex,
+          });
+        }
+
+        return out;
+      }
+
+      const windowsOffsetWarning =
+        <Alert bsStyle="warning">
+          <strong>Some Windows Indexes May Be Incorrect</strong><br/>
+          This class uses C++ features which can not be accounted for by this tool.
+        </Alert>;
+
+      const PrintVTable = (props) => {
+        var helpText = <span><Icon type="beer" /> You made it!</span>;
+        var tableHeader = <tr>
+          <th className="text-right">L</th>
+          <th className="text-right">W</th>
+          <th className="text-left">Function</th>
+        </tr>;
+        return <Layout title={helpText} showRestartButton showPickNewSymbolButton>
+          <div style={{ marginBottom: 30 }}>
+            {(props.selectedClass.hasMissingFunctions || props.selectedClass.vtables.length > 1) && windowsOffsetWarning}
+            <Table hover>
+              <thead>{tableHeader}</thead>
+              {formatVTable(props.selectedClass).map((func, i) =>
+                <tbody key={i}>
+                  {(i % 20) === 0 && i !== 0 && tableHeader}
+                  <tr key="info" ref={(row) => row && props.selectedFunction && props.selectedFunction.id === func.id && (row.classList.add('info'), (row.scrollIntoViewIfNeeded ? row.scrollIntoViewIfNeeded(true) : row.scrollIntoView(true)))}>
+                    <th className="text-right">{func.linuxIndex}</th>
+                    <th className="text-right">{func.windowsIndex}</th>
+                    <td className="text-left">
+                      <code>{func.name}</code>
+                      {func.isMulti && multiIcon}
+                    </td>
+                  </tr>
+                </tbody>
+              )}
+            </Table>
+          </div>
+        </Layout>;
+      };
+
+      class StateManager extends React.Component {
+        constructor(props) {
+          super(props);
+          this.state = {};
+        }
+        render() {
+          if (this.state.selectedClass)
+            return <PrintVTable
+              selectedClass={this.state.selectedClass}
+              selectedFunction={this.state.selectedFunction}
+            />;
+          else if (this.state.selectedFunction)
+            return <DisambiguateSymbol
+              selectedFunction={this.state.selectedFunction}
+            />;
+          else if (this.state.programInfo)
+            return <PickASymbol
+              programInfo={this.state.programInfo}
+              searchQuery={this.state.symbolQueryString || ''}
+              searchResults={this.state.symbolQueryResults || []}
+            />;
+          else if (this.state.binary)
+            return <ProcessingBinary
+              binary={this.state.selectedBinary}
+              loaded={this.state.binaryProcessingProgress.loaded}
+              total={this.state.binaryProcessingProgress.total}
+            />;
+          else if (this.state.binaryDownloadProgress)
+            return <DownloadingBinary
+              binary={this.state.selectedBinary}
+              loaded={this.state.binaryDownloadProgress.loaded}
+              total={this.state.binaryDownloadProgress.total}
+            />;
+          else if (this.state.gameList)
+            return <PickAGame
+              gameList={this.state.gameList}
+            />;
+          else
+            return <LoadingGameList />;
+        }
+      }
+
+      window.stateManager = stateManager = ReactDOM.render(
+        <StateManager />,
+        document.getElementById('content')
+      );
+
+      const requestGamesList = () => {
+        var xhr = new XMLHttpRequest();
+
+        xhr.addEventListener('load', (event) => {
+          stateManager.setState({ gameList: xhr.response });
+        });
+
+        xhr.open('GET', 'https://users.alliedmods.net/~asherkin/vtable/games.json');
+        xhr.responseType = 'json';
+
+        xhr.send();
+      }
+
+      requestGamesList();
+    </script>
+  </body>
+</html>
