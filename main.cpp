@@ -333,20 +333,20 @@ int main(int argc, char *argv[]) {
   }
 
   fprintf(stdout, "address size: %d\n", programInfo.addressSize);
-  fprintf(stdout, "rodata start: %08lx\n", programInfo.rodataStart);
-  fprintf(stdout, "rodata chunks: %lu\n", programInfo.rodataChunks.size());
+  fprintf(stdout, "rodata start: %08llx\n", (unsigned long long)programInfo.rodataStart);
+  fprintf(stdout, "rodata chunks: %u\n", programInfo.rodataChunks.size());
   for (const auto &chunk : programInfo.rodataChunks) {
-    fprintf(stdout, "  offset: %08lx\n", chunk.offset);
-    fprintf(stdout, "    size: %lu\n", chunk.data.size());
+    fprintf(stdout, "  offset: %08llx\n", (unsigned long long)chunk.offset);
+    fprintf(stdout, "    size: %u\n", chunk.data.size());
   }
 
-  fprintf(stdout, "symbols: %lu\n", programInfo.symbols.size());
+  fprintf(stdout, "symbols: %u\n", programInfo.symbols.size());
   for (const auto &symbol : programInfo.symbols) {
     if (symbol.address == 0 || symbol.size == 0 || symbol.name.empty()) {
       continue;
     }
-    fprintf(stdout, "  offset: %08lx\n", symbol.address);
-    fprintf(stdout, "    size: %lu\n", symbol.size);
+    fprintf(stdout, "  offset: %08llx\n", (unsigned long long)symbol.address);
+    fprintf(stdout, "    size: %llu\n", (unsigned long long)symbol.size);
     fprintf(stdout, "    name: %s\n", symbol.name.c_str());
   }
 

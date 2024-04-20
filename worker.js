@@ -136,7 +136,12 @@ self.onmessage = function(event) {
       listOfVirtualClasses.push(symbol);
     }
 
-    addressToSymbolMap[key(symbol.address)] = symbol;
+    var symbolKey = key(symbol.address);
+    if (addressToSymbolMap[symbolKey] === undefined) {
+      addressToSymbolMap[symbolKey] = []
+    }
+
+    addressToSymbolMap[symbolKey].push(symbol);
   }
 
   console.info("virtual classes: " + listOfVirtualClasses.length);
@@ -227,7 +232,8 @@ self.onmessage = function(event) {
         console.warn('Relocations not supported for 64-bit bins');
       }
 
-      var functionSymbol = addressToSymbolMap[key(functionAddress)];
+      var functionSymbols = addressToSymbolMap[key(functionAddress)];
+      var functionSymbol = functionSymbols && functionSymbols[functionSymbols.length - 1];
 
       // This could be the end of the vtable, or it could just be a pure/deleted func.
       if (!functionSymbol && (classInfo.vtables.length === 0 || !isZero(functionAddress))) {
@@ -279,6 +285,7 @@ self.onmessage = function(event) {
           searchKey: functionName.toLowerCase(),
           shortName: functionShortName,
           isThunk: false,
+          isMulti: functionSymbols.length > 1,
           classes: [],
         };
 

@@ -166,7 +166,12 @@ const onFileRead = function(err, data) {
       listOfVirtualClasses.push(symbol);
     }
 
-    addressToSymbolMap[key(symbol.address)] = symbol;
+    var addressKey = key(symbol.address);
+    if (addressToSymbolMap[addressKey] === undefined) {
+      addressToSymbolMap[addressKey] = [];
+    }
+
+    addressToSymbolMap[addressKey].push(symbol);
   }
 
   console.info("virtual classes: " + listOfVirtualClasses.length);
@@ -210,6 +215,7 @@ const onFileRead = function(err, data) {
       searchKey: name.toLowerCase(),
       vtables: [],
       hasMissingFunctions: false,
+      hasMultiFunctions: false,
     };
 
     var currentVtable;
@@ -229,7 +235,8 @@ const onFileRead = function(err, data) {
         loaded += 1;
       }
 
-      var functionSymbol = addressToSymbolMap[key(functionAddress)];
+      var functionSymbols = addressToSymbolMap[key(functionAddress)];
+      var functionSymbol = functionSymbols && functionSymbols[functionSymbols.length - 1];
 
       // This could be the end of the vtable, or it could just be a pure/deleted func.
       if (!functionSymbol && (classInfo.vtables.length === 0 || !isZero(functionAddress))) {
@@ -281,6 +288,7 @@ const onFileRead = function(err, data) {
           searchKey: functionName.toLowerCase(),
           shortName: functionShortName,
           isThunk: false,
+          isMulti: functionSymbols.length > 1,
           classes: [],
         };
 
@@ -293,6 +301,8 @@ const onFileRead = function(err, data) {
 
         addressToFunctionMap[key(functionAddress)] = functionInfo;
       }
+
+      classInfo.hasMultiFunctions = classInfo.hasMultiFunctions || functionInfo.isMulti;
 
       functionInfo.classes.push(classInfo);
       currentVtable.push(functionInfo);
@@ -323,7 +333,10 @@ const onFileRead = function(err, data) {
       console.log('  Uses multiple inheritance');
     }
     if (classInfo.hasMissingFunctions || classInfo.vtables.length > 1) {
-        console.log('  Windows offsets may be incorrect');
+      console.log('  Windows offsets may be incorrect');
+    }
+    if (classInfo.hasMultiFunctions) {
+      console.log('  Some identical functions have been de-duplicated by the compiler');
     }
 
     for (var vtableIndex = 0; vtableIndex < classInfo.vtables.length; ++vtableIndex) {
@@ -340,7 +353,7 @@ const onFileRead = function(err, data) {
         if (shouldSkipWindowsFunction(classInfo, vtableIndex, linuxIndex, functionInfo)) {
           displayWindowsIndex = ' ';
         } else {
-          if (functionInfo.symbol) {
+          if (functionInfo.symbol && !functionInfo.isMulti) {
             var previousOverloads = 0;
             var remainingOverloads = 0;
 
@@ -381,7 +394,7 @@ const onFileRead = function(err, data) {
           windowsIndex++;
         }
 
-        console.log('    ' + ('  ' + linuxIndex).substr(-3) + ' ' + ('  ' + displayWindowsIndex).substr(-3) + ' ' + functionInfo.name);
+        console.log('    ' + ('  ' + linuxIndex).substr(-3) + ' ' + ('  ' + displayWindowsIndex).substr(-3) + ' ' + functionInfo.name + (functionInfo.isMulti ? ' [MULTI]' : ''));
       }
     }
   }

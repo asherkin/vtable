@@ -190,6 +190,18 @@
           </OverlayTrigger>
         </span>;
 
+      const multiIconTooltip =
+        <Tooltip id="tooltip-multi">This function has been de&#8209;duplicated by the compiler, the name may be incorrect</Tooltip>;
+
+      const multiIcon =
+        <span style={{ position: 'absolute', marginLeft: '0.25em' }}>
+          <OverlayTrigger placement="right" overlay={multiIconTooltip}>
+            <div>
+              <Icon type="copy" />
+            </div>
+          </OverlayTrigger>
+        </span>;
+
       const Layout = (props) =>
         <div className="text-center">
           <div className="page-header">
@@ -303,6 +315,7 @@
               placeholder="Enter a class or function name ..."
               onChange={handleSymbolSearchChange.bind(null, props.programInfo)}
               value={props.searchQuery}
+              spellCheck="false"
             />
             <Nav bsStyle="pills" stacked style={{ marginBottom: 15 }}>
               {props.searchResults.map((symbol) =>
@@ -362,7 +375,7 @@
           if (shouldSkipWindowsFunction(classInfo, vtableIndex, linuxIndex, functionInfo)) {
             displayWindowsIndex = null;
           } else {
-            if (functionInfo.symbol) {
+            if (functionInfo.symbol && !functionInfo.isMulti) {
               var previousOverloads = 0;
               var remainingOverloads = 0;
 
@@ -406,6 +419,7 @@
           out.push({
             id: functionInfo.id,
             name: functionInfo.name,
+            isMulti: functionInfo.isMulti,
             linuxIndex: linuxIndex,
             windowsIndex: displayWindowsIndex,
           });
@@ -427,19 +441,21 @@
           <th className="text-right">W</th>
           <th className="text-left">Function</th>
         </tr>;
-        var counter = 0;
         return <Layout title={helpText} showRestartButton showPickNewSymbolButton>
           <div style={{ marginBottom: 30 }}>
             {(props.selectedClass.hasMissingFunctions || props.selectedClass.vtables.length > 1) && windowsOffsetWarning}
             <Table hover>
               <thead>{tableHeader}</thead>
-              {formatVTable(props.selectedClass).map((func) =>
-                <tbody key={func.id}>
-                  {(counter++ % 20) === 0 && counter !== 1 && tableHeader}
+              {formatVTable(props.selectedClass).map((func, i) =>
+                <tbody key={i}>
+                  {(i % 20) === 0 && i !== 0 && tableHeader}
                   <tr key="info" ref={(row) => row && props.selectedFunction && props.selectedFunction.id === func.id && (row.classList.add('info'), (row.scrollIntoViewIfNeeded ? row.scrollIntoViewIfNeeded(true) : row.scrollIntoView(true)))}>
                     <th className="text-right">{func.linuxIndex}</th>
                     <th className="text-right">{func.windowsIndex}</th>
-                    <td className="text-left"><code>{func.name}</code></td>
+                    <td className="text-left">
+                      <code>{func.name}</code>
+                      {func.isMulti && multiIcon}
+                    </td>
                   </tr>
                 </tbody>
               )}
