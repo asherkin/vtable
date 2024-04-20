@@ -1,6 +1,10 @@
 var Module = {};
 importScripts('vtable.js');
 
+Module().then(function(m) {
+  Module = m;
+});
+
 function demangleSymbol(func) {
   try {
     if (typeof func !== 'string') {

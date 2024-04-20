@@ -1,15 +1,15 @@
 DEBUG ?= 0
 GIT_REMOTE := $(shell git ls-remote --get-url)
-EMCC_OPTIONS := -s SINGLE_FILE=1 -s DEMANGLE_SUPPORT=1 -s ALLOW_MEMORY_GROWTH=1 -s NO_FILESYSTEM=1 -s "EXPORTED_FUNCTIONS=['___cxa_demangle','_malloc','_free']" -s "EXTRA_EXPORTED_RUNTIME_METHODS=['getValue','lengthBytesUTF8','UTF8ToString','stringToUTF8']"
+EMCC_OPTIONS := -s SINGLE_FILE=1 -s ALLOW_MEMORY_GROWTH=1 -s NO_FILESYSTEM=1 -s MODULARIZE=1 -s "EXPORTED_FUNCTIONS=['___cxa_demangle','_malloc','_free']" -s "EXPORTED_RUNTIME_METHODS=['getValue','lengthBytesUTF8','UTF8ToString','stringToUTF8']"
 
 MAKEFLAGS += --no-builtin-rules
 .SUFFIXES:
 
 vtable.js: main.cpp build-libelf/lib/libelf.a is_debug
 ifeq ($(DEBUG), 1)
-	em++ --bind --std=c++14 -s ASSERTIONS=2 -s SAFE_HEAP=1 -s WARN_UNALIGNED=1 $(EMCC_OPTIONS) -Ibuild-libelf/lib -Ilibelf-0.8.13/lib -o vtable.js main.cpp build-libelf/lib/libelf.a
+	em++ -lembind --std=c++14 -s ASSERTIONS=2 -s SAFE_HEAP=1 -s WARN_UNALIGNED=1 $(EMCC_OPTIONS) -Ibuild-libelf/lib -Ilibelf-0.8.13/lib -o vtable.js main.cpp build-libelf/lib/libelf.a
 else
-	em++ --bind --std=c++14 -O3 --llvm-lto 1 --closure 1 -s AGGRESSIVE_VARIABLE_ELIMINATION=1 $(EMCC_OPTIONS) -Ibuild-libelf/lib -Ilibelf-0.8.13/lib -o vtable.js main.cpp build-libelf/lib/libelf.a
+	em++ -lembind --std=c++14 -O3 --closure 1 -s AGGRESSIVE_VARIABLE_ELIMINATION=1 $(EMCC_OPTIONS) -Ibuild-libelf/lib -Ilibelf-0.8.13/lib -o vtable.js main.cpp build-libelf/lib/libelf.a
 endif
 
 vtable: main.cpp build-libelf-native/lib/libelf.a is_debug
@@ -40,11 +40,11 @@ distclean: clean
 	rm -rf build-libelf build-libelf-native libelf-0.8.13 libelf-0.8.13.tar.gz
 
 test: test.js vtable.js test/test-32 test/test-64
-	node test.js test/test-32
-	node test.js test/test-64
+	/usr/bin/node test.js test/test-32
+	/usr/bin/node test.js test/test-64
 
-build-libelf/lib/libelf.a: export CFLAGS = -m32
-build-libelf/lib/libelf.a: export CXXFLAGS = -m32
+build-libelf/lib/libelf.a: export CFLAGS = -m32 -std=c89 -Wno-implicit-function-declaration
+build-libelf/lib/libelf.a: export CXXFLAGS = -m32 -std=c89 -Wno-implicit-function-declaration
 build-libelf/lib/libelf.a: export LDFLAGS = -m32
 build-libelf/lib/libelf.a: build-libelf libelf-0.8.13
 	cd build-libelf && emconfigure ../libelf-0.8.13/configure --build=i686-linux-gnu --enable-shared=no && emmake make
@@ -52,6 +52,9 @@ build-libelf/lib/libelf.a: build-libelf libelf-0.8.13
 build-libelf:
 	mkdir -p build-libelf
 
+build-libelf-native/lib/libelf.a: export CFLAGS = -m32 -std=c89 -Wno-implicit-function-declaration
+build-libelf-native/lib/libelf.a: export CXXFLAGS = -m32 -std=c89 -Wno-implicit-function-declaration
+build-libelf-native/lib/libelf.a: export LDFLAGS = -m32
 build-libelf-native/lib/libelf.a: build-libelf-native libelf-0.8.13
 	cd build-libelf-native && ../libelf-0.8.13/configure --build=i686-linux-gnu --enable-shared=no && make
 

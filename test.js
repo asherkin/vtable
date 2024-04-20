@@ -139,13 +139,7 @@ function shouldSkipWindowsFunction(classInfo, vtableIndex, functionIndex, functi
 
 //////////////////////////
 
-if (process.argv.length <= 2) {
-  throw 'Usage: ' + process.argv[0] + ' ' + process.argv[1] + ' <file>';
-}
-
-var inputFile = process.argv[2];
-
-fs.readFile(inputFile, function(err, data) {
+const onFileRead = function(err, data) {
   if (err) {
     throw err;
   }
@@ -391,4 +385,16 @@ fs.readFile(inputFile, function(err, data) {
       }
     }
   }
+};
+
+if (process.argv.length <= 2) {
+  throw 'Usage: ' + process.argv[0] + ' ' + process.argv[1] + ' <file>';
+}
+
+var inputFile = process.argv[2];
+
+Module().then(function(m) {
+  Module = m;
+
+  fs.readFile(inputFile, onFileRead);
 });
